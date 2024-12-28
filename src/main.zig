@@ -1,6 +1,8 @@
 const std = @import("std");
 const log = @import("./debug.zig").log;
 const rl = @import("raylib");
+const Player = @import("./player.zig").Player;
+const LookDirection = @import("./player.zig").LookDirection;
 const Game = @import("./game.zig").Game;
 const Wall = @import("./wall.zig").Wall;
 const WallType = @import("./wall.zig").WallType;
@@ -51,7 +53,7 @@ const GridScreenManager = struct {
     }
 };
 
-pub fn main() anyerror!void {
+pub fn main() !void {
     var gridScreenManager = GridScreenManager.init();
 
     const windowConfig = rl.ConfigFlags{ .window_resizable = true, .window_highdpi = true };
@@ -69,21 +71,34 @@ pub fn main() anyerror!void {
 
     log("Initializing window");
     rl.initWindow(gridScreenManager.screenWidth, gridScreenManager.screenHeight, "battlecity-zig");
+    defer rl.closeWindow();
 
     log("Initializing textures");
     // Load Textures
-    const tankSprite = rl.Texture.init("resources/tanks.png");
-    defer tankSprite.unload();
+    const spriteSheet = rl.Texture.init("resources/tanks.png");
+    defer spriteSheet.unload();
 
     log("Initializing obstacles");
     var obstacles = try ObstacleGenerator.init(10, 10, &allocator);
     defer obstacles.deinit();
 
-    defer rl.closeWindow();
+    log("Initializing players");
+    var player = Player{ .id = 1, .lookDirection = LookDirection.Down, .spawnDirection = LookDirection.Down, .movementKeys = .{ rl.KeyboardKey.w, rl.KeyboardKey.d, rl.KeyboardKey.s, rl.KeyboardKey.a }, .fireKey = rl.KeyboardKey.space, .tiles = spriteDb.TANK_1_TILES };
 
+    var timeSinceStart: f32 = 0.0;
+    var lastTick: f32 = 0.0;
+    const gameTickRate = 1.0 / 10.0;
     while (!rl.windowShouldClose()) {
-        // const deltaTime = rl.getFrameTime();
-        // const mousePosition = rl.getMousePosition();
+        const deltaTime = rl.getFrameTime();
+        timeSinceStart += deltaTime;
+        const tick = timeSinceStart / gameTickRate;
+        const fullTicks = std.math.floor(tick);
+
+        if (fullTicks > lastTick) {
+            lastTick = fullTicks;
+            log("Game tick");
+            player.onGameTick();
+        }
 
         // Update key press states
         const keyState = rl.getKeyPressed();
@@ -101,6 +116,8 @@ pub fn main() anyerror!void {
         }
 
         // Update game state
+
+        player.onUpdate(deltaTime);
 
         // Update window size
         if (rl.isWindowResized()) {
@@ -120,7 +137,7 @@ pub fn main() anyerror!void {
             for (row) |cell| {
                 // const cellSizeVector: @Vector(2, u32) = @splat(cellSize);
                 // const screenCoords = cell.position * cellSizeVector;
-                const spriteRect: ?[4]f32 = switch (cell.variant) {
+                const spriteRect: ?([]const f32) = switch (cell.variant) {
                     WallType.Brick => spriteDb.BRICK_TILE,
                     WallType.Concrete => spriteDb.CONCRETE_TILE,
                     WallType.Net => spriteDb.NET_TILE,
@@ -134,32 +151,36 @@ pub fn main() anyerror!void {
                     const destY = gridScreenManager.gridScreenOriginY + @as(f32, @floatFromInt(cell.position[1])) * gridScreenManager.cellScreenSize;
                     const destRectangle = rl.Rectangle.init(destX, destY, gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
 
-                    tankSprite.drawPro(sourceRectangle, destRectangle, originPosition, 0, rl.Color.white);
+                    spriteSheet.drawPro(sourceRectangle, destRectangle, originPosition, 0, rl.Color.white);
                 }
             }
         }
 
+        const playerSprite = player.getSprite();
+        // const prevPlayerPosition = player.position[1];
+        // const currentPlayerPosition = player.position[0];
+
+        const tickLerpState = (tick - fullTicks);
+        // std.log.debug("{} {} {}", .{ tickLerpState, tick, fullTicks });
+        const interpolatedX = std.math.lerp(i32toF32(player.position[1][0]), i32toF32(player.position[0][0]), tickLerpState);
+        const interpolatedY = std.math.lerp(i32toF32(player.position[1][1]), i32toF32(player.position[0][1]), tickLerpState);
+        std.log.debug("{}, {}", .{ i32toF32(player.position[1][0]), i32toF32(player.position[0][0]) });
+
+        const originPosition = rl.Vector2.init(0.0, 0.0);
+        const sourceRectangle = rl.Rectangle.init(playerSprite[0], playerSprite[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
+        const destX = gridScreenManager.gridScreenOriginX + interpolatedX * gridScreenManager.cellScreenSize;
+        const destY = gridScreenManager.gridScreenOriginY + interpolatedY * gridScreenManager.cellScreenSize;
+        const destRectangle = rl.Rectangle.init(destX, destY, gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
+        std.log.debug("{}", .{interpolatedX});
+
+        spriteSheet.drawPro(sourceRectangle, destRectangle, originPosition, 0, rl.Color.white);
+
         rl.drawFPS(0, 0);
-        // var screenText: [64]u8 = undefined;
-        // const written = try std.fmt.bufPrintZ(&screenText, "Mouse position: (\"{d} {d}\")", .{
-        //     .x = mousePosition.x,
-        //     .y = mousePosition.y,
-        // });
-
-        // // rl.drawText(@ptrCast(written.ptr), 190, 200, 20, rl.Color.light_gray);
-        // rl.drawText(written[0.. :0], 190, 200, 20, rl.Color.light_gray);
     }
+}
 
-    // // Prints to stderr (it's a shortcut based on `std.io.getStdErr()`)
-    std.debug.print("All your {s} are belong to us.\n", .{"codebase"});
-
-    const stdout_file = std.io.getStdOut().writer();
-    var bw = std.io.bufferedWriter(stdout_file);
-    const stdout = bw.writer();
-
-    try stdout.print("Run `zig build test` to run the tests.\n", .{});
-
-    try bw.flush();
+fn i32toF32(val: i32) f32 {
+    return @as(f32, @floatFromInt(val));
 }
 
 const ObstacleGenerator = struct {
@@ -205,7 +226,7 @@ const ObstacleGenerator = struct {
         for (self.walls, 0..) |row, x| {
             for (0..row.len) |y| {
                 const newObstacle = switch (rng.next() % 6) {
-                    0 | 1 => Wall.init(.{ @intCast(x), @intCast(y) }, WallType.Brick),
+                    0, 1 => Wall.init(.{ @intCast(x), @intCast(y) }, WallType.Brick),
                     2 => Wall.init(.{ @intCast(x), @intCast(y) }, WallType.Concrete),
                     3 => Wall.init(.{ @intCast(x), @intCast(y) }, WallType.Net),
                     else => Wall.init(.{ @intCast(x), @intCast(y) }, WallType.Empty),
