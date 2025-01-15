@@ -290,6 +290,48 @@ pub fn main() !void {
     var lastTick: f32 = 0.0;
     const gameTickRate = 1.0 / 10.0;
 
+    // const EntityLookupUnionType = enum {
+    //     player,
+    //     obstacle,
+    //     projectile,
+    //     world_bounds
+    // };
+    // const EntityLookupResult = union(EntityLookupUnionType) {
+    //     player: *Player,
+    //     obstacle: *Obstacle,
+    //     projectile: *Projectile,
+    //     empty: bool
+    // };
+
+    // fn getEntityFromPosition(position: *const [2]u32) !void {
+    //     for (players) |player| {
+    //         if (player.isAlive and isPositionEqual(&player.position[0], &position)) {
+    //             return EntityLookupResult{
+    //                 .player = &player
+    //             };
+    //         }
+    //     }
+
+    //     for (projectiles) |*projectile| {
+    //         if (projectile.isAlive and isPositionEqual(&projectile.position[0], &position[0])) {
+    //             return EntityLookupResult{
+    //                 .projectile = &projectile
+    //             };
+    //         }
+    //     }
+
+    //     const obstacle = &obstacles.walls[position[0]][position[1]];
+
+    //     return switch (obstacle.variant) {
+    //         .brick, .concrete => EntityLookupResult {
+    //             .obstacle = &obstacle
+    //         },
+    //         else => EntityLookupResult{
+    //             .empty = true
+    //         },
+    //     }
+    // }
+
     while (!RL.windowShouldClose()) {
         const deltaTime = RL.getFrameTime();
         timeSinceStart += deltaTime;
@@ -318,10 +360,10 @@ pub fn main() !void {
                 const y = projectile.position[0][1];
 
                 const nextProjectilePosition = switch (projectile.direction) {
-                    .Up => if (y == 0) ArrayError.OutOfBounds else .{ x, y - 1 },
-                    .Down => if (y == gridScreenManager.gridSize - 1) ArrayError.OutOfBounds else .{ x, y + 1 },
-                    .Left => if (x == 0) ArrayError.OutOfBounds else .{ x - 1, y },
-                    .Right => if (x == gridScreenManager.gridSize - 1) ArrayError.OutOfBounds else .{ x + 1, y },
+                    .Up => if (y == 0) null else .{ x, y - 1 },
+                    .Down => if (y == gridScreenManager.gridSize - 1) null else .{ x, y + 1 },
+                    .Left => if (x == 0) null else .{ x - 1, y },
+                    .Right => if (x == gridScreenManager.gridSize - 1) null else .{ x + 1, y },
                 };
 
                 if (nextProjectilePosition) |currentProjectilePosition| {
@@ -372,7 +414,7 @@ pub fn main() !void {
                     // if (obstacles.walls[currentProjectilePosition[0]][currentProjectilePosition[1]]) |wall| {
                     //     switch (wall) {}
                     // }
-                } else |_| {
+                } else {
                     // projectile.destroy();
                     projectile.isAlive = false;
                     projectile.position = .{ .{ 0, 0 }, .{ 0, 0 } };
