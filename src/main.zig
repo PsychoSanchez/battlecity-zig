@@ -1,9 +1,9 @@
 const std = @import("std");
 const log = @import("./debug.zig").log;
-const rl = @import("raylib");
-const Player = @import("./player.zig").Player;
-const LookDirection = @import("./player.zig").LookDirection;
-const Game = @import("./game.zig").Game;
+const RL = @import("raylib");
+// const Player = @import("./player.zig").Player;
+// const LookDirection = @import("./player.zig").LookDirection;
+// const Game = @import("./game.zig").Game;
 const Wall = @import("./wall.zig").Wall;
 const WallType = @import("./wall.zig").WallType;
 const spriteDb = @import("./sprite.db.zig");
@@ -51,18 +51,135 @@ const GridScreenManager = struct {
         self.gridScreenOriginX = (@as(f32, @floatFromInt(self.screenWidth)) - gridRenderSize) / 2.0;
         self.gridScreenOriginY = (@as(f32, @floatFromInt(self.screenHeight)) - gridRenderSize) / 2.0;
     }
+
+    pub fn toScreenCoords(self: GridScreenManager, position: *const [2]f32) [2]f32 {
+        const destX = self.gridScreenOriginX + position[0] * self.cellScreenSize;
+        const destY = self.gridScreenOriginY + position[1] * self.cellScreenSize;
+
+        return .{ destX, destY };
+    }
 };
+
+const ArrayError = error{OutOfBounds};
+
+const Direction = enum {
+    Up,
+    Right,
+    Down,
+    Left,
+
+    pub fn getNextPosition(self: Direction, position: *const [2]u32) ArrayError.OutOfBounds![2]u32 {
+        const x = position[0];
+        const y = position[1];
+
+        return switch (self) {
+            .Up => if (y == 0) ArrayError.OutOfBounds else .{ x, y - 1 },
+            .Down => .{ x, y + 1 },
+            .Left => if (x == 0) ArrayError.OutOfBounds else .{ x - 1, y },
+            .Right => .{ x + 1, y },
+        };
+    }
+};
+
+const ObstacleVariant = enum { brick, concrete, net };
+const Brick = struct {
+    health: u32,
+};
+const Concrete = struct {
+    health: u32,
+};
+const Net = struct {};
+const Obstacle = struct { position: [2]u32, variant: ObstacleVariant };
+
+const HealthPickup = struct {
+    amount: u32,
+};
+const ArmorPickup = struct { amount: u32 };
+const PickupVariantType = enum { health, armor };
+const PickupVariant = union(PickupVariantType) { health: HealthPickup, armor: ArmorPickup };
+const Pickup = struct { position: [2]u32, variant: PickupVariant };
+
+const Animation = struct { position: [2]u32, frames: [][]const f32, current: usize };
+
+const KeyboardControl = struct {
+    key: RL.KeyboardKey,
+    isKeyDown: bool = false,
+    lastActivatedAt: i64 = 0,
+
+    pub fn update(self: *KeyboardControl) void {
+        const isKeyDown = RL.isKeyDown(self.key);
+        if (isKeyDown and !self.isKeyDown) {
+            self.lastActivatedAt = std.time.milliTimestamp();
+        }
+
+        self.isKeyDown = isKeyDown;
+    }
+};
+
+const Player = struct {
+    isAlive: bool,
+    position: [2][2]u32,
+    direction: Direction,
+    armor: u8 = 0,
+    movementControls: [4]KeyboardControl,
+    fireControl: KeyboardControl,
+
+    pub fn getSprite(self: Player) spriteDb.SpriteId {
+        const shift: u8 = if (self.armor > 0) 4 else 0;
+        const sprites = spriteDb.TANK_1_SPRITES;
+
+        return switch (self.direction) {
+            .Up => sprites[0 + shift],
+            .Right => sprites[1 + shift],
+            .Down => sprites[2 + shift],
+            .Left => sprites[3 + shift],
+        };
+    }
+
+    pub fn updateControls(self: *Player) void {
+        for (&self.movementControls) |*control| {
+            // NOTE: error: error union is ignored
+            control.update();
+            // std.log.debug("{d} {any}", .{ control.lastActivatedAt, control.isKeyDown });
+        }
+
+        self.fireControl.update();
+    }
+};
+
+const Projectile = struct { position: [2][2]u32, direction: Direction, isAlive: bool };
+
+const EntityType = enum { obstacle, pickup, player, animation, projectile };
+const Entity = union(EntityType) {
+    obstacle: Obstacle,
+    pickup: Pickup,
+    player: Player,
+    animation: Animation,
+    projectile: Projectile,
+};
+
+fn getNewPositionFrom(position: *const [2]u32, direction: Direction) [2]u32 {
+    const x = position[0];
+    const y = position[1];
+
+    return switch (direction) {
+        .Up => .{ x, y - 1 },
+        .Down => .{ x, y + 1 },
+        .Left => .{ x - 1, y },
+        .Right => .{ x + 1, y },
+    };
+}
 
 pub fn main() !void {
     var gridScreenManager = GridScreenManager.init();
 
-    const windowConfig = rl.ConfigFlags{ .window_resizable = true, .window_highdpi = true };
+    const windowConfig = RL.ConfigFlags{ .window_resizable = true, .window_highdpi = true };
 
     log("Initializing window");
     std.debug.print("Setting window config flags: {}\n", .{windowConfig});
 
-    rl.setConfigFlags(windowConfig);
-    rl.setTargetFPS(300);
+    RL.setConfigFlags(windowConfig);
+    RL.setTargetFPS(300);
 
     log("Initializing memory allocator");
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -70,12 +187,12 @@ pub fn main() !void {
     defer _ = gpa.deinit();
 
     log("Initializing window");
-    rl.initWindow(gridScreenManager.screenWidth, gridScreenManager.screenHeight, "battlecity-zig");
-    defer rl.closeWindow();
+    RL.initWindow(gridScreenManager.screenWidth, gridScreenManager.screenHeight, "battlecity-zig");
+    defer RL.closeWindow();
 
     log("Initializing textures");
     // Load Textures
-    const spriteSheet = rl.Texture.init("resources/tanks.png");
+    const spriteSheet = RL.Texture.init("resources/tanks.png");
     defer spriteSheet.unload();
 
     log("Initializing obstacles");
@@ -83,104 +200,372 @@ pub fn main() !void {
     defer obstacles.deinit();
 
     log("Initializing players");
-    var player = Player{ .id = 1, .lookDirection = LookDirection.Down, .spawnDirection = LookDirection.Down, .movementKeys = .{ rl.KeyboardKey.w, rl.KeyboardKey.d, rl.KeyboardKey.s, rl.KeyboardKey.a }, .fireKey = rl.KeyboardKey.space, .tiles = spriteDb.TANK_1_TILES };
+    // var player = Player{ .id = 1, .lookDirection = LookDirection.Down, .spawnDirection = LookDirection.Down, .movementKeys = .{ rl.KeyboardKey.w, rl.KeyboardKey.d, rl.KeyboardKey.s, rl.KeyboardKey.a }, .fireKey = rl.KeyboardKey.space, .tiles = spriteDb.TANK_1_TILES };
 
     var timeSinceStart: f32 = 0.0;
     var lastTick: f32 = 0.0;
     const gameTickRate = 1.0 / 10.0;
-    while (!rl.windowShouldClose()) {
-        const deltaTime = rl.getFrameTime();
+
+    // var entities = std.ArrayList(Entity).init(allocator);
+    var entities = try allocator.alloc(Entity, 1000);
+    var entityCount: u16 = 0;
+    defer allocator.free(entities);
+
+    for (obstacles.walls) |row| {
+        for (row) |obstacle| {
+            const entity: ?Entity = switch (obstacle.variant) {
+                // WallType.Brick => entities.append(Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.brick } }),
+                // WallType.Concrete => entities.append(Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.concrete } }),
+                // WallType.Net => entities.append(Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.net } }),
+                WallType.Brick => Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.brick } },
+                WallType.Concrete => Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.concrete } },
+                WallType.Net => Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.net } },
+                else => null,
+            };
+
+            if (entity) |e| {
+                entities[entityCount] = e;
+                entityCount += 1;
+            }
+        }
+    }
+
+    // entities.append(Entity{ .player = Player{ .direction = Direction.Down, .position = .{ .{ 0, 0 }, .{ 0, 0 } } } });
+    // entities[entityCount] = Entity{ .player = Player{ .direction = Direction.Down, .position = .{ .{ 0, 0 }, .{ 0, 0 } }, .movementControls = .{
+    //     KeyboardControl{ .key = rl.KeyboardKey.w },
+    //     KeyboardControl{ .key = rl.KeyboardKey.d },
+    //     KeyboardControl{ .key = rl.KeyboardKey.s },
+    //     KeyboardControl{ .key = rl.KeyboardKey.a },
+    // }, .fireControl = KeyboardControl{ .key = rl.KeyboardKey.space } } };
+    // entityCount += 1;
+
+    log("Initializing mutable players");
+    var players = try allocator.alloc(Player, 4);
+    defer allocator.free(players);
+
+    players[0] = Player{ .isAlive = true, .direction = Direction.Down, .position = .{ .{ 0, 0 }, .{ 0, 0 } }, .movementControls = .{
+        KeyboardControl{ .key = RL.KeyboardKey.w },
+        KeyboardControl{ .key = RL.KeyboardKey.d },
+        KeyboardControl{ .key = RL.KeyboardKey.s },
+        KeyboardControl{ .key = RL.KeyboardKey.a },
+    }, .fireControl = KeyboardControl{ .key = RL.KeyboardKey.space } };
+    // entities[entityCount] = Entity{ .player = &players[0] };
+    // entityCount += 1;
+
+    var arenaAllocator = std.heap.ArenaAllocator.init(allocator);
+    defer arenaAllocator.deinit();
+    const bulletAllocator = arenaAllocator.allocator();
+    const projectiles = try bulletAllocator.alloc(Projectile, 100);
+    defer bulletAllocator.free(projectiles);
+
+    while (!RL.windowShouldClose()) {
+        const deltaTime = RL.getFrameTime();
         timeSinceStart += deltaTime;
-        const tick = timeSinceStart / gameTickRate;
-        const fullTicks = std.math.floor(tick);
+        const tickFloat = timeSinceStart / gameTickRate;
+        const tickFloor = std.math.floor(tickFloat);
 
-        if (fullTicks > lastTick) {
-            lastTick = fullTicks;
+        for (players) |*player| {
+            log("Updating controls");
+            player.updateControls();
+        }
+
+        if (tickFloor > lastTick) {
+            lastTick = tickFloor;
             log("Game tick");
-            player.onGameTick();
+
+            // Move bullets
+            // Check collisions with boundaries
+            // Check collisions with players
+            // Check collisions with other bullets
+            // Check collisions with obstacles
+            for (projectiles) |*projectile| {
+                if (!projectile.isAlive) {
+                    continue;
+                }
+
+                const x = projectile.position[0][0];
+                const y = projectile.position[0][1];
+
+                const nextProjectilePosition = switch (projectile.direction) {
+                    .Up => if (y == 0) ArrayError.OutOfBounds else .{ x, y - 1 },
+                    .Down => if (y == gridScreenManager.gridSize - 1) ArrayError.OutOfBounds else .{ x, y + 1 },
+                    .Left => if (x == 0) ArrayError.OutOfBounds else .{ x - 1, y },
+                    .Right => if (x == gridScreenManager.gridSize - 1) ArrayError.OutOfBounds else .{ x + 1, y },
+                };
+
+                if (nextProjectilePosition) |currentProjectilePosition| {
+                    projectile.position = .{ currentProjectilePosition, projectile.position[0] };
+
+                    for (players) |player| {
+                        if (isPositionEqual(&player.position[0], &currentProjectilePosition)) {
+                            // player.takeDamage();
+                            // projectile.destroy();
+                            // animation.spawn();
+
+                            projectile.isAlive = false;
+                            projectile.position = .{ .{ 0, 0 }, .{ 0, 0 } };
+                            projectile.direction = Direction.Up;
+                        }
+                        // player.position[0]
+                    }
+
+                    for (projectiles) |*projectileB| {
+                        if (!projectileB.isAlive or projectileB == projectile) {
+                            continue;
+                        }
+
+                        if (isPositionEqual(&projectileB.position[0], &projectile.position[0])) {
+                            // projectile.destroy();
+                            // projectileB.destroy();
+                            // animation.spawn();
+                        }
+                    }
+
+                    // if (obstacles.walls[currentProjectilePosition[0]][currentProjectilePosition[1]]) |wall| {
+                    //     switch (wall) {}
+                    // }
+
+                } else |_| {
+                    // projectile.destroy();
+                    projectile.isAlive = false;
+                    projectile.position = .{ .{ 0, 0 }, .{ 0, 0 } };
+                    projectile.direction = Direction.Up;
+                }
+            }
+
+            // Move players
+            // Check collisions with boundaries
+            // Check collisions with other players
+            // Check collisions with bullets
+            // Check collisions with obstacles
+            for (players) |*player| {
+                if (!player.isAlive) {
+                    continue;
+                }
+
+                const x = player.position[0][0];
+                const y = player.position[0][1];
+
+                const nextPosition = switch (player.direction) {
+                    .Up => if (y == 0) ArrayError.OutOfBounds else .{ x, y - 1 },
+                    .Down => if (y == gridScreenManager.gridSize - 1) ArrayError.OutOfBounds else .{ x, y + 1 },
+                    .Left => if (x == 0) ArrayError.OutOfBounds else .{ x - 1, y },
+                    .Right => if (x == gridScreenManager.gridSize - 1) ArrayError.OutOfBounds else .{ x + 1, y },
+                };
+
+                var canMove = true;
+                if (nextPosition) |position| {
+                    for (players) |playerB| {
+                        if (playerB.isAlive and isPositionEqual(&playerB.position[0], &position)) {
+                            canMove = false;
+                        }
+                    }
+
+                    for (projectiles) |projectile| {
+                        if (!projectile.isAlive) {
+                            continue;
+                        }
+
+                        if (isPositionEqual(&projectile.position[0], &position)) {
+                            // player.takeDamage();
+                            // projectile.destroy();
+                            // animation.spawn();
+                        }
+                    }
+
+                    // if (obstacles.walls[currentProjectilePosition[0]][currentProjectilePosition[1]]) |wall| {
+                    //     switch (wall) {}
+                    // }
+
+                    if (canMove) {
+                        player.position = .{ position, player.position[0] };
+                    }
+                } else |_| {}
+            }
+
+            // Update animation state
+            // for (animations) |animation| {
+            //     if (animation.isPlaying) {
+            //         animation.current += 1;
+
+            //         if (animation.current == animation.frames.len) {
+            //             // animation.destroy();
+            //             animation.isPlaying = false;
+            //         }
+            //     }
+            // }
         }
-
-        // Update key press states
-        const keyState = rl.getKeyPressed();
-        switch (keyState) {
-            rl.KeyboardKey.space => {
-                gridScreenManager.setGridSize(20);
-                try obstacles.setGridSize(20);
-                log("Space key is pressed");
-            },
-            rl.KeyboardKey.enter => {
-                obstacles.setRngSeed(@intCast(rl.getRandomValue(0, 10000)));
-                log("Enter key is pressed");
-            },
-            else => {},
-        }
-
-        // Update game state
-
-        player.onUpdate(deltaTime);
 
         // Update window size
-        if (rl.isWindowResized()) {
+        if (RL.isWindowResized()) {
             log("Window resized");
 
-            gridScreenManager.setScreenSize(rl.getScreenWidth(), rl.getScreenHeight());
+            gridScreenManager.setScreenSize(RL.getScreenWidth(), RL.getScreenHeight());
         }
 
         // Draw
-        rl.beginDrawing();
-        defer rl.endDrawing();
+        RL.beginDrawing();
+        defer RL.endDrawing();
 
-        rl.clearBackground(rl.Color.black);
+        RL.clearBackground(RL.Color.black);
 
-        // tankSprite.drawRec(0, 0, rl.Color.white);
-        for (obstacles.walls) |row| {
-            for (row) |cell| {
-                // const cellSizeVector: @Vector(2, u32) = @splat(cellSize);
-                // const screenCoords = cell.position * cellSizeVector;
-                const spriteRect: ?([]const f32) = switch (cell.variant) {
-                    WallType.Brick => spriteDb.BRICK_TILE,
-                    WallType.Concrete => spriteDb.CONCRETE_TILE,
-                    WallType.Net => spriteDb.NET_TILE,
-                    else => null,
-                };
+        for (entities) |entity| {
+            switch (entity) {
+                .obstacle => |obstacle| {
+                    const spriteRect: ?([]const f32) = switch (obstacle.variant) {
+                        .brick => spriteDb.getSprite(spriteDb.SpriteId.brick),
+                        .concrete => spriteDb.getSprite(spriteDb.SpriteId.concrete),
+                        .net => spriteDb.getSprite(spriteDb.SpriteId.net),
+                    };
 
-                if (spriteRect) |rect| {
-                    const originPosition = rl.Vector2.init(0.0, 0.0);
-                    const sourceRectangle = rl.Rectangle.init(rect[0], rect[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
-                    const destX = gridScreenManager.gridScreenOriginX + @as(f32, @floatFromInt(cell.position[0])) * gridScreenManager.cellScreenSize;
-                    const destY = gridScreenManager.gridScreenOriginY + @as(f32, @floatFromInt(cell.position[1])) * gridScreenManager.cellScreenSize;
-                    const destRectangle = rl.Rectangle.init(destX, destY, gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
+                    if (spriteRect) |rect| {
+                        renderSprite(&spriteSheet, &gridScreenManager, &RenderEntity{
+                            .position = RenderPosition{ .static = &obstacle.position },
+                            .sprite = &rect,
+                        });
+                        // const originPosition = RL.Vector2.init(0.0, 0.0);
+                        // const sourceRectangle = RL.Rectangle.init(rect[0], rect[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
+                        // const destX = gridScreenManager.gridScreenOriginX + @as(f32, @floatFromInt(obstacle.position[0])) * gridScreenManager.cellScreenSize;
+                        // const destY = gridScreenManager.gridScreenOriginY + @as(f32, @floatFromInt(obstacle.position[1])) * gridScreenManager.cellScreenSize;
+                        // const destRectangle = RL.Rectangle.init(destX, destY, gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
 
-                    spriteSheet.drawPro(sourceRectangle, destRectangle, originPosition, 0, rl.Color.white);
-                }
+                        // spriteSheet.drawPro(sourceRectangle, destRectangle, originPosition, 0, RL.Color.white);
+                    }
+                },
+                .player => |player| {
+                    const playerSprite = spriteDb.getSpriteR(player.getSprite());
+
+                    const tickLerpState = (tickFloat - tickFloor);
+                    const interpolatedPosition = getInterpolatedPosition(&player.position, tickLerpState);
+
+                    renderSprite(&spriteSheet, &gridScreenManager, &RenderEntity{
+                        .position = RenderPosition{ .dynamic = &interpolatedPosition },
+                        .sprite = &playerSprite,
+                    });
+
+                    // const tickLerp = (tickFloat - tickFloor);
+                    // const interpolatedX = std.math.lerp(@as(f32, @floatFromInt(player.position[1][0])), @as(f32, @floatFromInt(player.position[0][0])), tickLerp);
+                    // const interpolatedY = std.math.lerp(@as(f32, @floatFromInt(player.position[1][1])), @as(f32, @floatFromInt(player.position[0][1])), tickLerp);
+
+                    // const originPosition = RL.Vector2.init(0.0, 0.0);
+                    // const sourceRectangle = RL.Rectangle.init(playerSprite[0], playerSprite[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
+                    // const destX = gridScreenManager.gridScreenOriginX + interpolatedX * gridScreenManager.cellScreenSize;
+                    // const destY = gridScreenManager.gridScreenOriginY + interpolatedY * gridScreenManager.cellScreenSize;
+                    // const destRectangle = RL.Rectangle.init(destX, destY, gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
+
+                    // spriteSheet.drawPro(sourceRectangle, destRectangle, originPosition, 0, RL.Color.white);
+                },
+                .animation => |animation| {
+                    const frame = animation.frames[animation.current];
+
+                    renderSprite(&spriteSheet, &gridScreenManager, &RenderEntity{
+                        .position = RenderPosition{ .static = &animation.position },
+                        .sprite = &frame,
+                    });
+
+                    // const originPosition = RL.Vector2.init(0.0, 0.0);
+                    // const sourceRectangle = RL.Rectangle.init(frame[0], frame[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
+                    // const dest = gridScreenManager.toScreenCoords(animation.position);
+                    // const destRectangle = RL.Rectangle.init(dest[0], dest[1], gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
+
+                    // spriteSheet.drawPro(sourceRectangle, destRectangle, originPosition, 0, RL.Color.white);
+                },
+                .pickup => |pickup| {
+                    const frame = switch (pickup.variant) {
+                        .health => spriteDb.HEALTH_PICKUP_TILE,
+                        .armor => spriteDb.ARMOR_PICKUP_TILE,
+                    };
+
+                    renderSprite(&spriteSheet, &gridScreenManager, &RenderEntity{
+                        .position = RenderPosition{ .static = &pickup.position },
+                        .sprite = &frame,
+                    });
+
+                    // const originPosition = RL.Vector2.init(0.0, 0.0);
+                    // const sourceRectangle = RL.Rectangle.init(frame[0], frame[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
+                    // const dest = gridScreenManager.toScreenCoords(pickup.position);
+                    // const destRectangle = RL.Rectangle.init(dest[0], dest[1], gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
+
+                    // spriteSheet.drawPro(sourceRectangle, destRectangle, originPosition, 0, RL.Color.white);
+                },
+                .projectile => |projectile| {
+                    const frame = switch (projectile.direction) {
+                        .Down => spriteDb.SHELL_DOWN_TILE,
+                        .Left => spriteDb.SHELL_LEFT_TILE,
+                        .Up => spriteDb.SHELL_UP_TILE,
+                        .Right => spriteDb.SHELL_RIGHT_TILE,
+                    };
+
+                    const tickLerpState = (tickFloat - tickFloor);
+                    const interpolatedPosition = getInterpolatedPosition(&projectile.position, tickLerpState);
+
+                    renderSprite(&spriteSheet, &gridScreenManager, &RenderEntity{
+                        .position = RenderPosition{ .dynamic = &interpolatedPosition },
+                        .sprite = &frame,
+                    });
+
+                    // const interpolatedX = std.math.lerp(@as(f32, @floatFromInt(projectile.position[1][0])), @as(f32, @floatFromInt(projectile.position[0][0])), tickLerpState);
+                    // const interpolatedY = std.math.lerp(@as(f32, @floatFromInt(projectile.position[1][1])), @as(f32, @floatFromInt(projectile.position[0][1])), tickLerpState);
+
+                    // const originPosition = RL.Vector2.init(0.0, 0.0);
+                    // const sourceRectangle = RL.Rectangle.init(frame[0], frame[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
+                    // const dest = gridScreenManager.toScreenCoords(.{ interpolatedX, interpolatedY });
+                    // const destRectangle = RL.Rectangle.init(dest[0], dest[1], gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
+
+                    // spriteSheet.drawPro(sourceRectangle,  destRectangle, originPosition, 0, RL.Color.white);
+                },
             }
         }
 
-        const playerSprite = player.getSprite();
-        // const prevPlayerPosition = player.position[1];
-        // const currentPlayerPosition = player.position[0];
+        // for (entities) |entity| {}
 
-        const tickLerpState = (tick - fullTicks);
-        // std.log.debug("{} {} {}", .{ tickLerpState, tick, fullTicks });
-        const interpolatedX = std.math.lerp(i32toF32(player.position[1][0]), i32toF32(player.position[0][0]), tickLerpState);
-        const interpolatedY = std.math.lerp(i32toF32(player.position[1][1]), i32toF32(player.position[0][1]), tickLerpState);
-        std.log.debug("{}, {}", .{ i32toF32(player.position[1][0]), i32toF32(player.position[0][0]) });
-
-        const originPosition = rl.Vector2.init(0.0, 0.0);
-        const sourceRectangle = rl.Rectangle.init(playerSprite[0], playerSprite[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
-        const destX = gridScreenManager.gridScreenOriginX + interpolatedX * gridScreenManager.cellScreenSize;
-        const destY = gridScreenManager.gridScreenOriginY + interpolatedY * gridScreenManager.cellScreenSize;
-        const destRectangle = rl.Rectangle.init(destX, destY, gridScreenManager.cellScreenSize, gridScreenManager.cellScreenSize);
-        std.log.debug("{}", .{interpolatedX});
-
-        spriteSheet.drawPro(sourceRectangle, destRectangle, originPosition, 0, rl.Color.white);
-
-        rl.drawFPS(0, 0);
+        RL.drawFPS(0, 0);
     }
 }
 
-fn i32toF32(val: i32) f32 {
-    return @as(f32, @floatFromInt(val));
+pub fn isPositionEqual(positionA: *const [2]u32, positionB: *const [2]u32) bool {
+    return positionA[0] == positionB[0] and positionA[1] == positionB[1];
+}
+
+const MovablePosition = [2][2]u32;
+fn getInterpolatedPosition(position: *const MovablePosition, lerp: f32) [2]f32 {
+    const interpolatedX = std.math.lerp(@as(f32, @floatFromInt(position[1][0])), @as(f32, @floatFromInt(position[0][0])), lerp);
+    const interpolatedY = std.math.lerp(@as(f32, @floatFromInt(position[1][1])), @as(f32, @floatFromInt(position[0][1])), lerp);
+
+    return .{ interpolatedX, interpolatedY };
+}
+
+const SpriteRenderer = struct {
+    gridScreenManager: *const GridScreenManager,
+    texture: *const RL.Texture,
+};
+
+const RenderPositionType = enum { static, dynamic };
+
+const RenderPosition = union(RenderPositionType) {
+    static: *const [2]u32,
+    dynamic: *const [2]f32,
+};
+
+const RenderEntity = struct {
+    position: RenderPosition,
+    sprite: *const []const f32,
+};
+
+fn renderSprite(texture: *const RL.Texture, screenManager: *const GridScreenManager, args: *const RenderEntity) void {
+    const originPosition = RL.Vector2.init(0.0, 0.0);
+    const sourceRectangle = RL.Rectangle.init(args.sprite.ptr[0], args.sprite.ptr[1], spriteDb.TILE_SIZE, spriteDb.TILE_SIZE);
+    const dest = switch (args.position) {
+        .dynamic => |position| screenManager.toScreenCoords(position),
+        .static => |position| screenManager.toScreenCoords(&.{
+            @as(f32, @floatFromInt(position[0])),
+            @as(f32, @floatFromInt(position[1])),
+        }),
+    };
+    // const dest = screenManager.toScreenCoords(args.position);
+    const destRectangle = RL.Rectangle.init(dest[0], dest[1], screenManager.cellScreenSize, screenManager.cellScreenSize);
+
+    texture.drawPro(sourceRectangle, destRectangle, originPosition, 0, RL.Color.white);
 }
 
 const ObstacleGenerator = struct {
