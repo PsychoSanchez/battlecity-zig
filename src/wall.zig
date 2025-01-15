@@ -1,8 +1,8 @@
 pub const WallType = enum {
-    Brick,
-    Concrete,
-    Net,
-    Empty,
+    brick,
+    concrete,
+    net,
+    empty,
 };
 
 pub const Wall = struct {
