@@ -85,7 +85,7 @@ const PickupVariantType = enum { health, armor };
 const PickupVariant = union(PickupVariantType) { health: HealthPickup, armor: ArmorPickup };
 const Pickup = struct { position: [2]u32, variant: PickupVariant };
 
-const Animation = struct { position: [2]u32, frames: [][]const f32, current: usize = 0, isPlaying: bool = false };
+const Animation = struct { position: [2]u32, frames: *const [3][]const f32, current: usize = 0, isPlaying: bool = false };
 
 const KeyboardControl = struct {
     key: RL.KeyboardKey,
@@ -222,6 +222,25 @@ fn spawnProjectile(projectiles: *const []Projectile, projectile: Projectile) voi
     }
 }
 
+fn spawnAnimation(animations: *const []Animation, animation: Animation) void {
+    for (animations.*) |*p| {
+        if (!p.isPlaying) {
+            p.* = animation;
+
+            break;
+        }
+    }
+}
+
+fn spawnExplosionAnimation(animations: *const []Animation, position: [2]u32) void {
+    spawnAnimation(animations, Animation{
+        .current = 0,
+        .frames = &spriteDb.EXPLOSION_FRAMES,
+        .isPlaying = true,
+        .position = position,
+    });
+}
+
 pub fn main() !void {
     var gridScreenManager = GridScreenManager.init();
 
@@ -317,23 +336,23 @@ pub fn main() !void {
                     .player => |_| {
                         // player.takeDamage();
                         projectile.destroy();
-                        // animation.spawn();
+                        spawnExplosionAnimation(&animations, nextPosition);
                     },
                     .projectile => |projectileB| {
                         projectile.destroy();
                         projectileB.destroy();
-                        // animation.spawn();
+                        spawnExplosionAnimation(&animations, nextPosition);
                     },
                     .obstacle => |wall| {
                         switch (wall.variant) {
                             .brick => {
                                 wall.setVariant(WallType.empty);
                                 projectile.destroy();
-                                // animation.spawn(AnimationType.Explosion);
+                                spawnExplosionAnimation(&animations, nextPosition);
                             },
                             .concrete => {
                                 projectile.destroy();
-                                // animation.spawn(AnimationType.Explosion);
+                                spawnExplosionAnimation(&animations, nextPosition);
                             },
                             else => {},
                         }
@@ -364,20 +383,20 @@ pub fn main() !void {
                         switch (traceResult) {
                             .player => |_| {
                                 // player.takeDamage();
-                                // animation.spawn();
+                                spawnExplosionAnimation(&animations, position);
                             },
                             .projectile => |projectileB| {
                                 projectileB.destroy();
-                                // animation.spawn();
+                                spawnExplosionAnimation(&animations, position);
                             },
                             .obstacle => |wall| {
                                 switch (wall.variant) {
                                     .brick => {
                                         wall.setVariant(WallType.empty);
-                                        // animation.spawn(AnimationType.Explosion);
+                                        spawnExplosionAnimation(&animations, position);
                                     },
                                     .concrete => {
-                                        // animation.spawn(AnimationType.Explosion);
+                                        spawnExplosionAnimation(&animations, position);
                                     },
                                     else => {},
                                 }
@@ -409,7 +428,7 @@ pub fn main() !void {
                         },
                         .projectile => |projectile| {
                             projectile.destroy();
-                            // animation.spawn();
+                            spawnExplosionAnimation(&animations, position);
                         },
                         // .pickup => |pickup| {
                         // if (player.tryTakePickup()) {
