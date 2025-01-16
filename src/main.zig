@@ -58,39 +58,13 @@ const GridScreenManager = struct {
 
         return .{ destX, destY };
     }
-
-    pub fn tryGetPositionInDirection(self: GridScreenManager, position: *const [2]u32, direction: Direction) ?[2]u32 {
-        const x = position[0];
-        const y = position[1];
-
-        return switch (direction) {
-            .Up => if (y == 0) null else .{ x, y - 1 },
-            .Down => if (y == self.gridSize - 1) null else .{ x, y + 1 },
-            .Left => if (x == 0) null else .{ x - 1, y },
-            .Right => if (x == self.gridSize - 1) null else .{ x + 1, y },
-        };
-    }
 };
-
-const ArrayError = error{OutOfBounds};
 
 const Direction = enum {
     Up,
     Right,
     Down,
     Left,
-
-    pub fn getNextPosition(self: Direction, position: *const [2]u32) ArrayError.OutOfBounds![2]u32 {
-        const x = position[0];
-        const y = position[1];
-
-        return switch (self) {
-            .Up => if (y == 0) ArrayError.OutOfBounds else .{ x, y - 1 },
-            .Down => .{ x, y + 1 },
-            .Left => if (x == 0) ArrayError.OutOfBounds else .{ x - 1, y },
-            .Right => .{ x + 1, y },
-        };
-    }
 };
 
 const ObstacleVariant = enum { brick, concrete, net };
@@ -181,7 +155,17 @@ const Player = struct {
     }
 };
 
-const Projectile = struct { position: [2][2]u32, direction: Direction, isAlive: bool };
+const Projectile = struct {
+    position: [2][2]u32,
+    direction: Direction,
+    isAlive: bool = false,
+
+    pub fn destroy(self: *Projectile) void {
+        self.isAlive = false;
+        self.direction = Direction.Down;
+        self.position = .{ .{ 0, 0 }, .{ 0, 0 } };
+    }
+};
 
 const EntityType = enum { obstacle, pickup, player, animation, projectile };
 const Entity = union(EntityType) {
@@ -192,16 +176,50 @@ const Entity = union(EntityType) {
     projectile: Projectile,
 };
 
-fn getNewPositionFrom(position: *const [2]u32, direction: Direction) [2]u32 {
+const EntityLookupUnionType = enum(u8) { player, obstacle, projectile, empty };
+const EntityLookupResult = union(EntityLookupUnionType) { player: *Player, obstacle: *Wall, projectile: *Projectile, empty: void };
+
+fn getEntityFromPosition(players: *const []Player, projectiles: *const []Projectile, obstacles: *const ObstacleGenerator, position: *const [2]u32) EntityLookupResult {
+    for (players.*) |*player| {
+        if (player.isAlive and isPositionEqual(&player.position[0], position)) {
+            return EntityLookupResult{ .player = player };
+        }
+    }
+
+    for (projectiles.*) |*projectile| {
+        if (projectile.isAlive and isPositionEqual(&projectile.position[0], position)) {
+            return EntityLookupResult{ .projectile = projectile };
+        }
+    }
+
+    const obstacle = &obstacles.walls[position[0]][position[1]];
+
+    return switch (obstacle.variant) {
+        .brick, .concrete => EntityLookupResult{ .obstacle = obstacle },
+        else => EntityLookupResult{ .empty = {} },
+    };
+}
+
+fn getPositionFromDirection(position: *const [2]u32, direction: Direction, gridSize: usize) ?[2]u32 {
     const x = position[0];
     const y = position[1];
 
     return switch (direction) {
-        .Up => .{ x, y - 1 },
-        .Down => .{ x, y + 1 },
-        .Left => .{ x - 1, y },
-        .Right => .{ x + 1, y },
+        .Up => if (y == 0) null else .{ x, y - 1 },
+        .Down => if (y == gridSize - 1) null else .{ x, y + 1 },
+        .Left => if (x == 0) null else .{ x - 1, y },
+        .Right => if (x == gridSize - 1) null else .{ x + 1, y },
     };
+}
+
+fn spawnProjectile(projectiles: *const []Projectile, projectile: Projectile) void {
+    for (projectiles.*) |*p| {
+        if (!p.isAlive) {
+            p.* = projectile;
+
+            break;
+        }
+    }
 }
 
 pub fn main() !void {
@@ -259,78 +277,10 @@ pub fn main() !void {
     const animations = try allocator.alloc(Animation, 100);
     defer allocator.free(animations);
 
-    // log("Initializing render entities");
-    // var renderEntities = try allocator.alloc(Entity, 1000);
-    // var entityCount: u16 = 0;
-    // defer allocator.free(renderEntities);
-
-    // for (obstacles.walls) |row| {
-    //     for (row) |obstacle| {
-    //         const entity: ?Entity = switch (obstacle.variant) {
-    //             WallType.Brick => Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.brick } },
-    //             WallType.Concrete => Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.concrete } },
-    //             WallType.Net => Entity{ .obstacle = Obstacle{ .position = obstacle.position, .variant = ObstacleVariant.net } },
-    //             else => null,
-    //         };
-
-    //         if (entity) |e| {
-    //             renderEntities[entityCount] = e;
-    //             entityCount += 1;
-    //         }
-    //     }
-    // }
-
-    // for (players) |player| {
-    //     renderEntities[entityCount] = Entity{ .player = player };
-    //     entityCount += 1;
-    // }
-
     log("Initializing game ticks");
     var timeSinceStart: f32 = 0.0;
     var lastTick: f32 = 0.0;
     const gameTickRate = 1.0 / 10.0;
-
-    // const EntityLookupUnionType = enum {
-    //     player,
-    //     obstacle,
-    //     projectile,
-    //     world_bounds
-    // };
-    // const EntityLookupResult = union(EntityLookupUnionType) {
-    //     player: *Player,
-    //     obstacle: *Obstacle,
-    //     projectile: *Projectile,
-    //     empty: bool
-    // };
-
-    // fn getEntityFromPosition(position: *const [2]u32) !void {
-    //     for (players) |player| {
-    //         if (player.isAlive and isPositionEqual(&player.position[0], &position)) {
-    //             return EntityLookupResult{
-    //                 .player = &player
-    //             };
-    //         }
-    //     }
-
-    //     for (projectiles) |*projectile| {
-    //         if (projectile.isAlive and isPositionEqual(&projectile.position[0], &position[0])) {
-    //             return EntityLookupResult{
-    //                 .projectile = &projectile
-    //             };
-    //         }
-    //     }
-
-    //     const obstacle = &obstacles.walls[position[0]][position[1]];
-
-    //     return switch (obstacle.variant) {
-    //         .brick, .concrete => EntityLookupResult {
-    //             .obstacle = &obstacle
-    //         },
-    //         else => EntityLookupResult{
-    //             .empty = true
-    //         },
-    //     }
-    // }
 
     while (!RL.windowShouldClose()) {
         const deltaTime = RL.getFrameTime();
@@ -356,70 +306,42 @@ pub fn main() !void {
                     continue;
                 }
 
-                const x = projectile.position[0][0];
-                const y = projectile.position[0][1];
-
-                const nextProjectilePosition = switch (projectile.direction) {
-                    .Up => if (y == 0) null else .{ x, y - 1 },
-                    .Down => if (y == gridScreenManager.gridSize - 1) null else .{ x, y + 1 },
-                    .Left => if (x == 0) null else .{ x - 1, y },
-                    .Right => if (x == gridScreenManager.gridSize - 1) null else .{ x + 1, y },
+                const nextPosition = getPositionFromDirection(projectile.position[0][0..], projectile.direction, gridScreenManager.gridSize) orelse {
+                    projectile.destroy();
+                    continue;
                 };
 
-                if (nextProjectilePosition) |currentProjectilePosition| {
-                    projectile.position = .{ currentProjectilePosition, projectile.position[0] };
+                const traceResult = getEntityFromPosition(&players, &projectiles, &obstacles, &nextPosition);
 
-                    for (players) |player| {
-                        if (isPositionEqual(&player.position[0], &currentProjectilePosition)) {
-                            // player.takeDamage();
-                            // projectile.destroy();
-                            // animation.spawn();
-
-                            projectile.isAlive = false;
-                            projectile.position = .{ .{ 0, 0 }, .{ 0, 0 } };
-                            projectile.direction = Direction.Up;
+                switch (traceResult) {
+                    .player => |_| {
+                        // player.takeDamage();
+                        projectile.destroy();
+                        // animation.spawn();
+                    },
+                    .projectile => |projectileB| {
+                        projectile.destroy();
+                        projectileB.destroy();
+                        // animation.spawn();
+                    },
+                    .obstacle => |wall| {
+                        switch (wall.variant) {
+                            .brick => {
+                                wall.setVariant(WallType.empty);
+                                projectile.destroy();
+                                // animation.spawn(AnimationType.Explosion);
+                            },
+                            .concrete => {
+                                projectile.destroy();
+                                // animation.spawn(AnimationType.Explosion);
+                            },
+                            else => {},
                         }
-                        // player.position[0]
-                    }
-
-                    for (projectiles) |*projectileB| {
-                        if (!projectileB.isAlive or projectileB == projectile) {
-                            continue;
-                        }
-
-                        if (isPositionEqual(&projectileB.position[0], &projectile.position[0])) {
-                            // projectile.destroy();
-                            // projectileB.destroy();
-                            // animation.spawn();
-                        }
-                    }
-
-                    const obstacle = &obstacles.walls[currentProjectilePosition[0]][currentProjectilePosition[1]];
-
-                    switch (obstacle.variant) {
-                        .brick => {
-                            obstacle.setVariant(WallType.empty);
-                            projectile.isAlive = false;
-                            // projectile.destroy();
-                            // animation.spawn(AnimationType.Explosion);
-                        },
-                        .concrete => {
-                            projectile.isAlive = false;
-                            // projectile.destroy();
-                            // animation.spawn(AnimationType.Explosion);
-                        },
-                        else => {},
-                    }
-
-                    // if (obstacles.walls[currentProjectilePosition[0]][currentProjectilePosition[1]]) |wall| {
-                    //     switch (wall) {}
-                    // }
-                } else {
-                    // projectile.destroy();
-                    projectile.isAlive = false;
-                    projectile.position = .{ .{ 0, 0 }, .{ 0, 0 } };
-                    projectile.direction = Direction.Up;
+                    },
+                    .empty => {},
                 }
+
+                projectile.position = .{ nextPosition, projectile.position[0] };
             }
 
             // Move players
@@ -432,72 +354,76 @@ pub fn main() !void {
                     continue;
                 }
 
-                const newDirection: Direction = player.getPressedDirection() orelse {
-                    player.position = .{ player.position[0], player.position[0] };
+                const newDirection = player.getPressedDirection();
 
-                    if (player.fireControl.isKeyDown) {
-                        for (projectiles) |*p| {
-                            if (!p.isAlive) {
-                                const spawnPosition = gridScreenManager.tryGetPositionInDirection(&player.position[0], player.direction) orelse {
-                                    break;
-                                };
+                if (player.fireControl.isKeyDown) {
+                    const spawnPosition = getPositionFromDirection(&player.position[0], player.direction, gridScreenManager.gridSize);
 
-                                p.position = .{ spawnPosition, spawnPosition };
-                                p.direction = player.direction;
-                                p.isAlive = true;
-
-                                break;
-                            }
+                    if (spawnPosition) |position| {
+                        const traceResult = getEntityFromPosition(&players, &projectiles, &obstacles, &position);
+                        switch (traceResult) {
+                            .player => |_| {
+                                // player.takeDamage();
+                                // animation.spawn();
+                            },
+                            .projectile => |projectileB| {
+                                projectileB.destroy();
+                                // animation.spawn();
+                            },
+                            .obstacle => |wall| {
+                                switch (wall.variant) {
+                                    .brick => {
+                                        wall.setVariant(WallType.empty);
+                                        // animation.spawn(AnimationType.Explosion);
+                                    },
+                                    .concrete => {
+                                        // animation.spawn(AnimationType.Explosion);
+                                    },
+                                    else => {},
+                                }
+                            },
+                            .empty => {
+                                spawnProjectile(&projectiles, Projectile{ .isAlive = true, .direction = player.direction, .position = .{ position, position } });
+                            },
                         }
                     }
-                    continue;
-                };
+                }
 
-                player.direction = newDirection;
+                if (newDirection) |dir| {
+                    player.direction = dir;
 
-                const x = player.position[0][0];
-                const y = player.position[0][1];
+                    const x = player.position[0][0];
+                    const y = player.position[0][1];
 
-                const nextPosition: anyerror![2]u32 = switch (player.direction) {
-                    .Up => if (y == 0) ArrayError.OutOfBounds else .{ x, y - 1 },
-                    .Down => if (y == gridScreenManager.gridSize - 1) ArrayError.OutOfBounds else .{ x, y + 1 },
-                    .Left => if (x == 0) ArrayError.OutOfBounds else .{ x - 1, y },
-                    .Right => if (x == gridScreenManager.gridSize - 1) ArrayError.OutOfBounds else .{ x + 1, y },
-                };
+                    const position: [2]u32 = getPositionFromDirection(player.position[0][0..], player.direction, gridScreenManager.gridSize) orelse {
+                        player.position = .{ player.position[0], player.position[0] };
+                        continue;
+                    };
 
-                var canMove = true;
-                if (nextPosition) |position| {
-                    for (players) |playerB| {
-                        if (playerB.isAlive and isPositionEqual(&playerB.position[0], &position)) {
+                    const traceResult = getEntityFromPosition(&players, &projectiles, &obstacles, &position);
+
+                    var canMove = true;
+                    switch (traceResult) {
+                        .player => |_| {
                             canMove = false;
-                        }
-                    }
-
-                    for (projectiles) |projectile| {
-                        if (!projectile.isAlive) {
-                            continue;
-                        }
-
-                        if (isPositionEqual(&projectile.position[0], &position)) {
-                            // player.takeDamage();
-                            // projectile.destroy();
+                        },
+                        .projectile => |projectile| {
+                            projectile.destroy();
                             // animation.spawn();
-                        }
-                    }
-
-                    for (pickups) |*pickup| {
-                        if (isPositionEqual(&pickup.position, &position)) {
-                            // if (player.tryTakePickup()) {
-                            // pickup.destroy();
-                            //
-                            // }
-                        }
-                    }
-
-                    const obstacleInDirection = obstacles.walls[position[0]][position[1]];
-                    switch (obstacleInDirection.variant) {
-                        .brick, .concrete => canMove = false,
-                        else => {},
+                        },
+                        // .pickup => |pickup| {
+                        // if (player.tryTakePickup()) {
+                        // pickup.destroy();
+                        //
+                        // }
+                        // },
+                        .obstacle => |wall| {
+                            switch (wall.variant) {
+                                .brick, .concrete => canMove = false,
+                                else => {},
+                            }
+                        },
+                        .empty => {},
                     }
 
                     if (canMove) {
@@ -505,7 +431,7 @@ pub fn main() !void {
                     } else {
                         player.position = .{ player.position[0], player.position[0] };
                     }
-                } else |_| {
+                } else {
                     player.position = .{ player.position[0], player.position[0] };
                 }
             }
