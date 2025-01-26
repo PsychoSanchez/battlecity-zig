@@ -1,161 +1,116 @@
 pub const GAME_OVER_TEXTURE_PATH: []const u8 = "resources/gameover.png";
 pub const TANKS_TEXTURE_PATH: []const u8 = "resources/tanks.png";
 
-pub const TILE_SIZE: f32 = 16.0;
-pub const SpriteId = enum {
+pub const SpriteId = enum(u16) {
     brick,
     concrete,
+    armor_pickup,
+    shell_up,
+    shell_right,
+    shell_down,
+    shell_left,
+    health_pickup,
+    tank_1_up,
+    tank_2_up,
+    tank_1_right,
+    tank_2_right,
+    tank_1_down,
+    tank_2_down,
+    tank_1_left,
+    tank_2_left,
+    tank_3_up,
+    tank_4_up,
+    tank_3_right,
+    tank_4_right,
+    tank_3_down,
+    tank_4_down,
+    tank_3_left,
+    tank_4_left,
+    explosion_frame_1,
+    explosion_frame_2,
+    explosion_frame_3,
+    empty_frame,
+    spawn_frame_1,
+    spawn_frame_2,
+    spawn_frame_3,
     net,
-    tank1up,
-    tank1down,
-    tank1left,
-    tank1right,
-    armored_tank1up,
-    armored_tank1right,
-    armored_tank1down,
-    armored_tank1left,
+    armored_tank_1_up,
+    armored_tank_2_up,
+    armored_tank_1_right,
+    armored_tank_2_right,
+    armored_tank_1_down,
+    armored_tank_2_down,
+    armored_tank_1_left,
+    armored_tank_2_left,
+    armored_tank_3_up,
+    armored_tank_4_up,
+    armored_tank_3_right,
+    armored_tank_4_right,
+    armored_tank_3_down,
+    armored_tank_4_down,
+    armored_tank_3_left,
+    armored_tank_4_left,
 };
-pub const TILES = &.{ &.{ 0.0 * TILE_SIZE, 0.0 * TILE_SIZE }, &.{ 1.0 * TILE_SIZE, 0.0 * TILE_SIZE }, &.{ 7.0 * TILE_SIZE, 3.0 * TILE_SIZE } };
 
-pub fn getSprite(comptime tile: SpriteId) []const f32 {
-    return comptime switch (tile) {
-        .brick => &.{ 0.0 * TILE_SIZE, 0.0 * TILE_SIZE },
-        .concrete => &.{ 1.0 * TILE_SIZE, 0.0 * TILE_SIZE },
-        .net => &.{ 7.0 * TILE_SIZE, 3.0 * TILE_SIZE },
-        .tank1up => &.{ 0.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .tank1down => &.{ 4.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .tank1left => &.{ 6.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .tank1right => &.{ 2.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        // TODO:
-        .armored_tank1up => &.{ 0.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .armored_tank1down => &.{ 4.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .armored_tank1left => &.{ 6.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .armored_tank1right => &.{ 2.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-    };
+pub const TILE_SIZE: f32 = 16.0;
+fn getBoundRect(comptime index: [2]f32) [4]f32 {
+    const spriteX = index[0] * TILE_SIZE;
+    const spriteY = index[1] * TILE_SIZE;
+
+    return .{ spriteX, spriteY, TILE_SIZE, TILE_SIZE };
 }
 
-pub fn getSpriteR(tile: SpriteId) []const f32 {
+// pub fn getSprite(comptime tile: SpriteId) [4]f32 {
+//     return comptime switch (tile) {
+pub fn getSprite(tile: SpriteId) [4]f32 {
     return switch (tile) {
-        .brick => &.{ 0.0 * TILE_SIZE, 0.0 * TILE_SIZE },
-        .concrete => &.{ 1.0 * TILE_SIZE, 0.0 * TILE_SIZE },
-        .net => &.{ 7.0 * TILE_SIZE, 3.0 * TILE_SIZE },
-        .tank1up => &.{ 0.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .tank1down => &.{ 4.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .tank1left => &.{ 6.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .tank1right => &.{ 2.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        // TODO:
-        .armored_tank1up => &.{ 0.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .armored_tank1down => &.{ 4.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .armored_tank1left => &.{ 6.0 * TILE_SIZE, 1.0 * TILE_SIZE },
-        .armored_tank1right => &.{ 2.0 * TILE_SIZE, 1.0 * TILE_SIZE },
+        .brick => getBoundRect(.{ 0.0, 0.0 }),
+        .concrete => getBoundRect(.{ 1.0, 0.0 }),
+        .armor_pickup => getBoundRect(.{ 2.0, 0.0 }),
+        .shell_up => getBoundRect(.{ 3.0, 0.0 }),
+        .shell_right => getBoundRect(.{ 4.0, 0.0 }),
+        .shell_down => getBoundRect(.{ 5.0, 0.0 }),
+        .shell_left => getBoundRect(.{ 6.0, 0.0 }),
+        .health_pickup => getBoundRect(.{ 7.0, 0.0 }),
+        .tank_1_up => getBoundRect(.{ 0.0, 1.0 }),
+        .tank_2_up => getBoundRect(.{ 1.0, 1.0 }),
+        .tank_1_right => getBoundRect(.{ 2.0, 1.0 }),
+        .tank_2_right => getBoundRect(.{ 3.0, 1.0 }),
+        .tank_1_down => getBoundRect(.{ 4.0, 1.0 }),
+        .tank_2_down => getBoundRect(.{ 5.0, 1.0 }),
+        .tank_1_left => getBoundRect(.{ 6.0, 1.0 }),
+        .tank_2_left => getBoundRect(.{ 7.0, 1.0 }),
+        .tank_3_up => getBoundRect(.{ 0.0, 2.0 }),
+        .tank_4_up => getBoundRect(.{ 1.0, 2.0 }),
+        .tank_3_right => getBoundRect(.{ 2.0, 2.0 }),
+        .tank_4_right => getBoundRect(.{ 3.0, 2.0 }),
+        .tank_3_down => getBoundRect(.{ 4.0, 2.0 }),
+        .tank_4_down => getBoundRect(.{ 5.0, 2.0 }),
+        .tank_3_left => getBoundRect(.{ 6.0, 2.0 }),
+        .tank_4_left => getBoundRect(.{ 7.0, 2.0 }),
+        .explosion_frame_1 => getBoundRect(.{ 0.0, 3.0 }),
+        .explosion_frame_2 => getBoundRect(.{ 1.0, 3.0 }),
+        .explosion_frame_3 => getBoundRect(.{ 2.0, 3.0 }),
+        .empty_frame => getBoundRect(.{ 3.0, 3.0 }),
+        .spawn_frame_1 => getBoundRect(.{ 4.0, 3.0 }),
+        .spawn_frame_2 => getBoundRect(.{ 5.0, 3.0 }),
+        .spawn_frame_3 => getBoundRect(.{ 6.0, 3.0 }),
+        .net => getBoundRect(.{ 7.0, 3.0 }),
+        .armored_tank_1_up => getBoundRect(.{ 0.0, 4.0 }),
+        .armored_tank_2_up => getBoundRect(.{ 1.0, 4.0 }),
+        .armored_tank_1_right => getBoundRect(.{ 2.0, 4.0 }),
+        .armored_tank_2_right => getBoundRect(.{ 3.0, 4.0 }),
+        .armored_tank_1_down => getBoundRect(.{ 4.0, 4.0 }),
+        .armored_tank_2_down => getBoundRect(.{ 5.0, 4.0 }),
+        .armored_tank_1_left => getBoundRect(.{ 6.0, 4.0 }),
+        .armored_tank_2_left => getBoundRect(.{ 7.0, 4.0 }),
+        .armored_tank_3_up => getBoundRect(.{ 0.0, 5.0 }),
+        .armored_tank_4_up => getBoundRect(.{ 1.0, 5.0 }),
+        .armored_tank_3_right => getBoundRect(.{ 2.0, 5.0 }),
+        .armored_tank_4_right => getBoundRect(.{ 3.0, 5.0 }),
+        .armored_tank_3_down => getBoundRect(.{ 4.0, 5.0 }),
+        .armored_tank_4_down => getBoundRect(.{ 5.0, 5.0 }),
+        .armored_tank_3_left => getBoundRect(.{ 6.0, 5.0 }),
+        .armored_tank_4_left => getBoundRect(.{ 7.0, 5.0 }),
     };
 }
-
-pub const BRICK_TILE: []const f32 = &.{ 0.0 * TILE_SIZE, 0.0 * TILE_SIZE };
-pub const CONCRETE_TILE: []const f32 = &.{ 1.0 * TILE_SIZE, 0.0 * TILE_SIZE };
-pub const ARMOR_PICKUP_TILE: []const f32 = &.{ 2.0 * TILE_SIZE, 0.0 * TILE_SIZE };
-pub const SHELL_UP_TILE: []const f32 = &.{ 3.0 * TILE_SIZE, 0.0 * TILE_SIZE };
-pub const SHELL_RIGHT_TILE: []const f32 = &.{ 4.0 * TILE_SIZE, 0.0 * TILE_SIZE };
-pub const SHELL_DOWN_TILE: []const f32 = &.{ 5.0 * TILE_SIZE, 0.0 * TILE_SIZE };
-pub const SHELL_LEFT_TILE: []const f32 = &.{ 6.0 * TILE_SIZE, 0.0 * TILE_SIZE };
-pub const HEALTH_PICKUP_TILE: []const f32 = &.{ 7.0 * TILE_SIZE, 0.0 * TILE_SIZE };
-pub const TANK_1_TILE_UP: []const f32 = &.{ 0.0 * TILE_SIZE, 1.0 * TILE_SIZE };
-pub const TANK_2_TILE_UP: []const f32 = &.{ 1.0 * TILE_SIZE, 1.0 * TILE_SIZE };
-pub const TANK_1_TILE_RIGHT: []const f32 = &.{ 2.0 * TILE_SIZE, 1.0 * TILE_SIZE };
-pub const TANK_2_TILE_RIGHT: []const f32 = &.{ 3.0 * TILE_SIZE, 1.0 * TILE_SIZE };
-pub const TANK_1_TILE_DOWN: []const f32 = &.{ 4.0 * TILE_SIZE, 1.0 * TILE_SIZE };
-pub const TANK_2_TILE_DOWN: []const f32 = &.{ 5.0 * TILE_SIZE, 1.0 * TILE_SIZE };
-pub const TANK_1_TILE_LEFT: []const f32 = &.{ 6.0 * TILE_SIZE, 1.0 * TILE_SIZE };
-pub const TANK_2_TILE_LEFT: []const f32 = &.{ 7.0 * TILE_SIZE, 1.0 * TILE_SIZE };
-pub const TANK_3_TILE_UP: []const f32 = &.{ 0.0 * TILE_SIZE, 2.0 * TILE_SIZE };
-pub const TANK_4_TILE_UP: []const f32 = &.{ 1.0 * TILE_SIZE, 2.0 * TILE_SIZE };
-pub const TANK_3_TILE_RIGHT: []const f32 = &.{ 2.0 * TILE_SIZE, 2.0 * TILE_SIZE };
-pub const TANK_4_TILE_RIGHT: []const f32 = &.{ 3.0 * TILE_SIZE, 2.0 * TILE_SIZE };
-pub const TANK_3_TILE_DOWN: []const f32 = &.{ 4.0 * TILE_SIZE, 2.0 * TILE_SIZE };
-pub const TANK_4_TILE_DOWN: []const f32 = &.{ 5.0 * TILE_SIZE, 2.0 * TILE_SIZE };
-pub const TANK_3_TILE_LEFT: []const f32 = &.{ 6.0 * TILE_SIZE, 2.0 * TILE_SIZE };
-pub const TANK_4_TILE_LEFT: []const f32 = &.{ 7.0 * TILE_SIZE, 2.0 * TILE_SIZE };
-pub const EXPLOSION_FRAME_1_TILE: []const f32 = &.{ 0.0 * TILE_SIZE, 3.0 * TILE_SIZE };
-pub const EXPLOSION_FRAME_2_TILE: []const f32 = &.{ 1.0 * TILE_SIZE, 3.0 * TILE_SIZE };
-pub const EXPLOSION_FRAME_3_TILE: []const f32 = &.{ 2.0 * TILE_SIZE, 3.0 * TILE_SIZE };
-pub const EMPTY_FRAME_TILE: []const f32 = &.{ 3.0 * TILE_SIZE, 3.0 * TILE_SIZE };
-pub const SPAWN_FRAME_1_TILE: []const f32 = &.{ 4.0 * TILE_SIZE, 3.0 * TILE_SIZE };
-pub const SPAWN_FRAME_2_TILE: []const f32 = &.{ 5.0 * TILE_SIZE, 3.0 * TILE_SIZE };
-pub const SPAWN_FRAME_3_TILE: []const f32 = &.{ 6.0 * TILE_SIZE, 3.0 * TILE_SIZE };
-pub const NET_TILE: []const f32 = &.{ 7.0 * TILE_SIZE, 3.0 * TILE_SIZE };
-pub const ARMORED_TANK_1_TILE_UP: []const f32 = &.{ 0.0 * TILE_SIZE, 4.0 * TILE_SIZE };
-pub const ARMORED_TANK_2_TILE_UP: []const f32 = &.{ 1.0 * TILE_SIZE, 4.0 * TILE_SIZE };
-pub const ARMORED_TANK_1_TILE_RIGHT: []const f32 = &.{ 2.0 * TILE_SIZE, 4.0 * TILE_SIZE };
-pub const ARMORED_TANK_2_TILE_RIGHT: []const f32 = &.{ 3.0 * TILE_SIZE, 4.0 * TILE_SIZE };
-pub const ARMORED_TANK_1_TILE_DOWN: []const f32 = &.{ 4.0 * TILE_SIZE, 4.0 * TILE_SIZE };
-pub const ARMORED_TANK_2_TILE_DOWN: []const f32 = &.{ 5.0 * TILE_SIZE, 4.0 * TILE_SIZE };
-pub const ARMORED_TANK_1_TILE_LEFT: []const f32 = &.{ 6.0 * TILE_SIZE, 4.0 * TILE_SIZE };
-pub const ARMORED_TANK_2_TILE_LEFT: []const f32 = &.{ 7.0 * TILE_SIZE, 4.0 * TILE_SIZE };
-pub const ARMORED_TANK_3_TILE_UP: []const f32 = &.{ 0.0 * TILE_SIZE, 5.0 * TILE_SIZE };
-pub const ARMORED_TANK_4_TILE_UP: []const f32 = &.{ 1.0 * TILE_SIZE, 5.0 * TILE_SIZE };
-pub const ARMORED_TANK_3_TILE_RIGHT: []const f32 = &.{ 2.0 * TILE_SIZE, 5.0 * TILE_SIZE };
-pub const ARMORED_TANK_4_TILE_RIGHT: []const f32 = &.{ 3.0 * TILE_SIZE, 5.0 * TILE_SIZE };
-pub const ARMORED_TANK_3_TILE_DOWN: []const f32 = &.{ 4.0 * TILE_SIZE, 5.0 * TILE_SIZE };
-pub const ARMORED_TANK_4_TILE_DOWN: []const f32 = &.{ 5.0 * TILE_SIZE, 5.0 * TILE_SIZE };
-pub const ARMORED_TANK_3_TILE_LEFT: []const f32 = &.{ 6.0 * TILE_SIZE, 5.0 * TILE_SIZE };
-pub const ARMORED_TANK_4_TILE_LEFT: []const f32 = &.{ 7.0 * TILE_SIZE, 5.0 * TILE_SIZE };
-
-pub const TANK_1_SPRITES = [8]SpriteId{
-    SpriteId.tank1up,
-    SpriteId.tank1right,
-    SpriteId.tank1down,
-    SpriteId.tank1left,
-    SpriteId.armored_tank1up,
-    SpriteId.armored_tank1right,
-    SpriteId.armored_tank1down,
-    SpriteId.armored_tank1left,
-};
-
-pub const TANK_1_TILES = [8]([]const f32){
-    TANK_1_TILE_UP,
-    TANK_1_TILE_RIGHT,
-    TANK_1_TILE_DOWN,
-    TANK_1_TILE_LEFT,
-    ARMORED_TANK_1_TILE_UP,
-    ARMORED_TANK_1_TILE_RIGHT,
-    ARMORED_TANK_1_TILE_DOWN,
-    ARMORED_TANK_1_TILE_LEFT,
-};
-pub const TANK_2_TILES = [8]([]const f32){
-    TANK_2_TILE_UP,
-    TANK_2_TILE_RIGHT,
-    TANK_2_TILE_DOWN,
-    TANK_2_TILE_LEFT,
-    ARMORED_TANK_2_TILE_UP,
-    ARMORED_TANK_2_TILE_RIGHT,
-    ARMORED_TANK_2_TILE_DOWN,
-    ARMORED_TANK_2_TILE_LEFT,
-};
-pub const TANK_3_TILES = [8]([]const f32){
-    TANK_3_TILE_UP,
-    TANK_3_TILE_RIGHT,
-    TANK_3_TILE_DOWN,
-    TANK_3_TILE_LEFT,
-    ARMORED_TANK_3_TILE_UP,
-    ARMORED_TANK_3_TILE_RIGHT,
-    ARMORED_TANK_3_TILE_DOWN,
-    ARMORED_TANK_3_TILE_LEFT,
-};
-pub const TANK_4_TILES = [8]([]const f32){
-    TANK_4_TILE_UP,
-    TANK_4_TILE_RIGHT,
-    TANK_4_TILE_DOWN,
-    TANK_4_TILE_LEFT,
-    ARMORED_TANK_4_TILE_UP,
-    ARMORED_TANK_4_TILE_RIGHT,
-    ARMORED_TANK_4_TILE_DOWN,
-    ARMORED_TANK_4_TILE_LEFT,
-};
-pub const EXPLOSION_FRAMES = [3]([]const f32){
-    EXPLOSION_FRAME_1_TILE,
-    EXPLOSION_FRAME_2_TILE,
-    EXPLOSION_FRAME_3_TILE,
-};
-
-pub const SPAWN_FRAMES =
-    [3]([]const f32){ SPAWN_FRAME_1_TILE, SPAWN_FRAME_2_TILE, SPAWN_FRAME_3_TILE };
