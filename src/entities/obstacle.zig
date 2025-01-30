@@ -18,27 +18,23 @@ pub const ObstacleGridManager = struct {
     rngSeed: u64 = 0,
     allocator: *const std.mem.Allocator,
 
-    pub fn init(row_count: u8, column_count: u8, allocator: *const std.mem.Allocator) !ObstacleGridManager {
+    pub fn init(row_count: u32, column_count: u32, allocator: *const std.mem.Allocator) !ObstacleGridManager {
         var obstacles = ObstacleGridManager{ .allocator = allocator, .rngSeed = 0 };
         try obstacles.alloc(row_count, column_count);
         return obstacles;
     }
 
-    pub fn alloc(self: *ObstacleGridManager, row_count: u8, column_count: u8) !void {
+    pub fn alloc(self: *ObstacleGridManager, row_count: u32, column_count: u32) !void {
         self.obstacles = try self.allocator.alloc([]?Obstacle, row_count);
 
-        for (0..row_count) |y| {
+        for (0..row_count) |index| {
             const row = try self.allocator.alloc(?Obstacle, column_count);
-
-            for (0..column_count) |x| {
-                row[x] = null;
-            }
-
-            self.obstacles[y] = row;
+            @memset(row, null);
+            self.obstacles[index] = row;
         }
     }
 
-    pub fn setGridSize(self: *ObstacleGridManager, gridSize: u8) !void {
+    pub fn setGridSize(self: *ObstacleGridManager, gridSize: u32) !void {
         self.deinit();
         try self.alloc(gridSize, gridSize);
         self.generateObstacles();

@@ -1,0 +1,17 @@
+{
+    "controls": {
+        "player1": {
+            "move_up": "w",
+            "move_right": "d",
+            "move_down": "s",
+            "move_left": "a",
+            "fire": "spacebar"
+        },
+        "player2": {
+            "move_up": "arrow_up",
+            "move_right": "arrow_right",
+            "move_down": "arrow_down",
+            "move_left": "arrow_left"
+        }
+    }
+}

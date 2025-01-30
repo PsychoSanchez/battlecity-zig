@@ -19,20 +19,18 @@ const Animation = @import("./entities/animation.zig").Animation;
 const Projectile = @import("./entities/projectile.zig").Projectile;
 const Obstacles = @import("./entities/obstacle.zig");
 
-const EntityManager = @import("./entities/entity.manager.zig");
+const EntityManager = @import("./entities/entity.manager.zig").EntityManager;
 
 const EntityLookupUnionType = enum(u8) { player, obstacle, projectile, empty };
 const EntityLookupResult = union(EntityLookupUnionType) { player: *Player, obstacle: *Obstacles.Obstacle, projectile: *Projectile, empty: void };
 
-fn getEntityFromPosition(players: *const []?Player, projectiles: *const []Projectile, obstacles: *Obstacles.ObstacleGridManager, position: *const [2]u32) EntityLookupResult {
+fn getEntityFromPosition(players: *const []Player, projectiles: *const []Projectile, obstacles: *Obstacles.ObstacleGridManager, position: *const [2]u32) EntityLookupResult {
     // const entities = std.ArrayList(EntityLookupResult).init();
 
-    for (players.*) |*n_player| {
-        if (n_player.*) |*player| {
-            if (player.isAlive and isPositionEqual(&player.position[0], position)) {
-                // entities.append(EntityLookupResult{ .player = player });
-                return EntityLookupResult{ .player = player };
-            }
+    for (players.*) |*player| {
+        if (player.isAlive and isPositionEqual(&player.position[0], position)) {
+            // entities.append(EntityLookupResult{ .player = player });
+            return EntityLookupResult{ .player = player };
         }
     }
 
@@ -65,8 +63,23 @@ fn getEntityFromPosition(players: *const []?Player, projectiles: *const []Projec
     // return entities;
 }
 
+const GRID_SIZE: u32 = 50;
+
 pub fn main() !void {
-    var gridScreenManager = GridScreenManager.init();
+    var gridScreenManager = GridScreenManager.init(GRID_SIZE);
+
+    // std.fs.cwd().
+    // std.fs.openFileAbsolute(absolute_path: []const u8, flags: File.OpenFlags)
+    // const ioReader = std.io.bufferedReader(reader: anytype)
+    // std.json.reader(allocator: Allocator, io_reader: anytype)
+    // const parsed = try std.json.parseFromSlice(
+    //     Place,
+    //     test_allocator,
+    //     \\{ "lat": 40.684540, "long": -74.401422 }
+    // ,
+    //     .{},
+    // );
+    // defer parsed.deinit();
 
     const windowConfig = RL.ConfigFlags{ .window_resizable = true, .window_highdpi = true };
 
@@ -74,7 +87,7 @@ pub fn main() !void {
     std.debug.print("Setting window config flags: {}\n", .{windowConfig});
 
     RL.setConfigFlags(windowConfig);
-    RL.setTargetFPS(300);
+    // RL.setTargetFPS(300);
 
     log("Initializing memory allocator");
     var gpa = std.heap.GeneralPurposeAllocator(.{}){};
@@ -90,12 +103,10 @@ pub fn main() !void {
     const spriteSheet = RL.Texture.init("resources/tanks.png");
     defer spriteSheet.unload();
 
-    log("Initializing players");
-    var players = try allocator.alloc(?Player, 4);
-    @memset(players, null);
-    defer allocator.free(players);
+    var entityManager = try EntityManager.init(allocator, 50, 4, 50, 5);
+    defer entityManager.deinit();
 
-    players[0] = Player{ .id = 0, .isAlive = true, .direction = Direction.Down, .spawnDirection = Direction.Down, .position = .{ .{ 0, 0 }, .{ 0, 0 } }, .movementControls = .{
+    try entityManager.spawn(.{ .player = Player{ .id = 0, .isAlive = true, .direction = Direction.Down, .spawnDirection = Direction.Down, .position = .{ .{ 0, 0 }, .{ 0, 0 } }, .movementControls = .{
         KeyboardControl{ .key = RL.KeyboardKey.w },
         KeyboardControl{ .key = RL.KeyboardKey.d },
         KeyboardControl{ .key = RL.KeyboardKey.s },
@@ -109,29 +120,13 @@ pub fn main() !void {
         SpriteDB.SpriteId.armored_tank_1_right,
         SpriteDB.SpriteId.armored_tank_1_down,
         SpriteDB.SpriteId.armored_tank_1_left,
-    } };
-
-    log("Initializing projectiles pool");
-    var arenaAllocator = std.heap.ArenaAllocator.init(allocator);
-    defer arenaAllocator.deinit();
-    const bulletAllocator = arenaAllocator.allocator();
-    const projectiles = try bulletAllocator.alloc(Projectile, 100);
-    defer bulletAllocator.free(projectiles);
+    } } });
+    try entityManager.spawn(.{ .animation = Animation.spawn(entityManager.players.items[0].position[0]) });
 
     log("Initializing obstacles");
-    var obstacles = try Obstacles.ObstacleGridManager.init(10, 10, &allocator);
+    var obstacles = try Obstacles.ObstacleGridManager.init(GRID_SIZE, GRID_SIZE, &allocator);
     obstacles.generateObstacles();
     defer obstacles.deinit();
-
-    log("Initializing pickups");
-    const pickups = try allocator.alloc(?Pickup, 100);
-    @memset(pickups, null);
-    defer allocator.free(pickups);
-
-    log("Initializing animation pool");
-    const animations = try allocator.alloc(Animation, 100);
-
-    defer allocator.free(animations);
 
     log("Initializing game ticks");
     var timeSinceStart: f32 = 0.0;
@@ -144,167 +139,168 @@ pub fn main() !void {
         const tickFloat = timeSinceStart / gameTickRate;
         const tickFloor = std.math.floor(tickFloat);
 
-        for (players) |*n_player| {
-            if (n_player.*) |*player| {
-                player.updateControls();
-            }
+        for (entityManager.players.items) |*player| {
+            player.updateControls();
         }
 
         if (tickFloor > lastTick) {
             lastTick = tickFloor;
             log("Game tick");
 
-            // Move bullets
-            // Check collisions with boundaries
-            // Check collisions with players
-            // Check collisions with other bullets
-            // Check collisions with obstacles
-            for (projectiles) |*projectile| {
-                if (!projectile.isAlive) {
-                    continue;
-                }
+            const projectilesLength = entityManager.projectiles.items.len;
+            for (0..projectilesLength) |index| {
+                const reverseIndex = projectilesLength - index - 1;
+                var projectile = &entityManager.projectiles.items[reverseIndex];
 
                 const nextPosition = getPositionFromDirection(projectile.position[0][0..], projectile.direction, gridScreenManager.gridSize) orelse {
-                    projectile.destroy();
+                    entityManager.destroy(.{ .entity = .projectile, .index = reverseIndex });
+                    // projectile.destroy();
                     continue;
                 };
 
-                const traceResult = getEntityFromPosition(&players, &projectiles, &obstacles, &nextPosition);
-
-                switch (traceResult) {
-                    .player => |_| {
-                        // player.takeDamage();
-                        projectile.destroy();
-                        EntityManager.spawnExplosionAnimation(&animations, nextPosition);
-                    },
-                    .projectile => |projectileB| {
-                        projectile.destroy();
-                        projectileB.destroy();
-                        EntityManager.spawnExplosionAnimation(&animations, nextPosition);
-                    },
-                    .obstacle => |wall| {
-                        switch (wall.variant) {
-                            .brick => {
-                                obstacles.setObstacle(null, wall.position);
-                                projectile.destroy();
-                                EntityManager.spawnExplosionAnimation(&animations, nextPosition);
-                            },
-                            .concrete => {
-                                projectile.destroy();
-                                EntityManager.spawnExplosionAnimation(&animations, nextPosition);
-                            },
-                            else => {},
-                        }
-                    },
-                    .empty => {},
-                }
-
-                projectile.position = .{ nextPosition, projectile.position[0] };
+                @memcpy(&projectile.position[1], &projectile.position[0]);
+                projectile.position[0] = nextPosition;
             }
 
-            // Move players
-            // Check collisions with boundaries
-            // Check collisions with other players
-            // Check collisions with bullets
-            // Check collisions with obstacles
-            for (players) |*n_player| {
-                if (n_player.*) |*player| {
-                    if (!player.isAlive) {
-                        continue;
-                    }
+            for (entityManager.players.items) |*player| {
+                if (!player.isAlive) {
+                    continue;
+                }
 
-                    const newDirection = player.getPressedDirection();
+                if (player.getPressedDirection()) |movementDirection| {
+                    player.direction = movementDirection;
 
-                    if (player.fireControl.isKeyDown) {
-                        const spawnPosition = getPositionFromDirection(&player.position[0], player.direction, gridScreenManager.gridSize);
+                    var currentPositionCopy: [2]u32 = undefined;
+                    std.mem.copyForwards(u32, &currentPositionCopy, &player.position[0]);
 
-                        if (spawnPosition) |position| {
-                            const traceResult = getEntityFromPosition(&players, &projectiles, &obstacles, &position);
-                            switch (traceResult) {
-                                .player => |_| {
-                                    // player.takeDamage();
-                                    EntityManager.spawnExplosionAnimation(&animations, position);
-                                },
-                                .projectile => |projectileB| {
-                                    projectileB.destroy();
-                                    EntityManager.spawnExplosionAnimation(&animations, position);
-                                },
-                                .obstacle => |wall| {
-                                    switch (wall.variant) {
-                                        .brick => {
-                                            obstacles.setObstacle(null, wall.position);
-                                            EntityManager.spawnExplosionAnimation(&animations, position);
-                                        },
-                                        .concrete => {
-                                            EntityManager.spawnExplosionAnimation(&animations, position);
-                                        },
-                                        else => {},
-                                    }
-                                },
-                                .empty => {
-                                    EntityManager.spawnProjectile(&projectiles, Projectile{ .isAlive = true, .direction = player.direction, .position = .{ position, position } });
-                                },
-                            }
+                    var nextPosition = getPositionFromDirection(player.position[0][0..], movementDirection, gridScreenManager.gridSize) orelse currentPositionCopy;
+                    const obstacle = obstacles.obstacles[nextPosition[0]][nextPosition[1]];
+                    if (obstacle) |o| {
+                        switch (o.variant) {
+                            .brick, .concrete => {
+                                nextPosition = currentPositionCopy;
+                            },
+                            .net => {},
                         }
                     }
 
-                    if (newDirection) |dir| {
-                        player.direction = dir;
+                    std.mem.swap([2]u32, &player.position[1], &player.position[0]);
+                    player.position[0] = nextPosition;
+                } else {
+                    std.mem.copyForwards(u32, &player.position[1], player.position[0][0..]);
+                }
 
-                        const x = player.position[0][0];
-                        const y = player.position[0][1];
-
-                        const position: [2]u32 = getPositionFromDirection(player.position[0][0..], player.direction, gridScreenManager.gridSize) orelse {
-                            player.position = .{ player.position[0], player.position[0] };
-                            continue;
-                        };
-
-                        const traceResult = getEntityFromPosition(&players, &projectiles, &obstacles, &position);
-
-                        var canMove = true;
-                        switch (traceResult) {
-                            .player => |_| {
-                                canMove = false;
-                            },
-                            .projectile => |projectile| {
-                                projectile.destroy();
-                                EntityManager.spawnExplosionAnimation(&animations, position);
-                            },
-                            // .pickup => |pickup| {
-                            // if (player.tryTakePickup()) {
-                            // pickup.destroy();
-                            //
-                            // }
-                            // },
-                            .obstacle => |wall| {
-                                switch (wall.variant) {
-                                    .brick, .concrete => canMove = false,
-                                    else => {},
-                                }
-                            },
-                            .empty => {},
-                        }
-
-                        if (canMove) {
-                            player.position = .{ position, .{ x, y } };
-                        } else {
-                            player.position = .{ player.position[0], player.position[0] };
-                        }
-                    } else {
-                        player.position = .{ player.position[0], player.position[0] };
+                if (player.fireControl.isKeyDown) {
+                    if (getPositionFromDirection(&player.position[0], player.direction, gridScreenManager.gridSize)) |projectileSpawnPosition| {
+                        try entityManager.spawn(.{ .projectile = Projectile{ .direction = player.direction, .isAlive = true, .position = .{ projectileSpawnPosition, projectileSpawnPosition } } });
                     }
                 }
+            }
+
+            var projectilesToDestroyHashMap = std.AutoHashMap(usize, bool).init(allocator);
+            defer projectilesToDestroyHashMap.deinit();
+
+            // 1. Check direct collision when 2 objects are at the same place
+            // 2. Check indirect collision when 2 movable objects can potentially phase through each other
+            // |>|<|
+            // |<|>|
+            for (entityManager.projectiles.items, 0..) |*projectile, index| {
+                const staticPositionTraceResult = entityManager.getEntitiesAtPosition(projectile.position[0]);
+                defer staticPositionTraceResult.deinit();
+
+                for (staticPositionTraceResult.items) |lookupResult| {
+                    switch (lookupResult) {
+                        .player => |player| {
+                            log("Projectile hit player");
+                            player.health -= 1;
+
+                            projectilesToDestroyHashMap.put(index, true) catch |err| {
+                                std.debug.print("Failed to set projectile for removal: {}\n", .{err});
+                            };
+                        },
+                        .projectile => |projectileB| {
+                            if (projectileB != projectile) {
+                                log("Projectile hit another projectile");
+
+                                projectilesToDestroyHashMap.put(index, true) catch |err| {
+                                    std.debug.print("Failed to set projectile for removal: {}\n", .{err});
+                                };
+                            }
+                        },
+                        .pickup => {},
+                    }
+                }
+
+                const phaseCollisionTraceResult = entityManager.getEntityFromMovementHistory(.{
+                    projectile.position[1],
+                    projectile.position[0],
+                });
+                defer phaseCollisionTraceResult.deinit();
+
+                for (phaseCollisionTraceResult.items) |lookupResult| {
+                    switch (lookupResult) {
+                        .player => |player| {
+                            log("Projectile hit player");
+                            player.health -= 1;
+
+                            projectilesToDestroyHashMap.put(index, true) catch |err| {
+                                std.debug.print("Failed to set projectile for removal: {}\n", .{err});
+                            };
+                        },
+                        .projectile => |projectileB| {
+                            if (projectileB != projectile) {
+                                log("Projectile hit another projectile. HOW?");
+
+                                projectilesToDestroyHashMap.put(index, true) catch |err| {
+                                    std.debug.print("Failed to set projectile for removal: {}\n", .{err});
+                                };
+                                // entityManager.destroy(.{ .entity = .projectile, .index =  ?? });
+                                // entityManager.destroy(.{ .entity = .projectile, .index =  ?? });
+                            }
+                        },
+                        .pickup => {},
+                    }
+                }
+
+                const x = projectile.position[0][0];
+                const y = projectile.position[0][1];
+
+                if (obstacles.obstacles[x][y]) |*obstacle| {
+                    switch (obstacle.variant) {
+                        .brick => {
+                            obstacles.obstacles[x][y] = null;
+                            try entityManager.spawn(.{ .animation = Animation.explosion(projectile.position[0]) });
+                            projectilesToDestroyHashMap.put(index, true) catch |err| {
+                                std.debug.print("Failed to set projectile for removal: {}\n", .{err});
+                            };
+                        },
+                        .concrete => {
+                            try entityManager.spawn(.{ .animation = Animation.explosion(projectile.position[0]) });
+                            projectilesToDestroyHashMap.put(index, true) catch |err| {
+                                std.debug.print("Failed to set projectile for removal: {}\n", .{err});
+                            };
+                        },
+                        .net => {},
+                    }
+                }
+            }
+
+            const keysSlice = try getSliceOfKeysFromHashMap(usize, allocator, &projectilesToDestroyHashMap);
+            defer allocator.free(keysSlice);
+            std.mem.sort(usize, keysSlice, {}, std.sort.desc(usize));
+            for (keysSlice) |projectileIndex| {
+                entityManager.destroy(.{ .entity = .projectile, .index = projectileIndex });
             }
 
             // Update animation state
-            for (animations) |*animation| {
-                if (animation.isPlaying) {
-                    animation.current += 1;
+            const animationsLength = entityManager.animations.items.len;
+            for (0..animationsLength) |index| {
+                const reverseIndex = animationsLength - index - 1;
+                var animation = &entityManager.animations.items[reverseIndex];
+                animation.current += 1;
 
-                    if (animation.current == animation.frames.len) {
-                        // animation.destroy();
-                        animation.isPlaying = false;
-                    }
+                if (animation.current == animation.frames.len) {
+                    entityManager.destroy(.{ .entity = .animation, .index = reverseIndex });
                 }
             }
         }
@@ -322,44 +318,40 @@ pub fn main() !void {
 
         RL.clearBackground(RL.Color.black);
 
-        for (pickups) |n_pickup| {
-            if (n_pickup) |pickup| {
-                const frame: [4]f32 = switch (pickup.variant) {
-                    .health => SpriteDB.getSprite(SpriteDB.SpriteId.health_pickup),
-                    .armor => SpriteDB.getSprite(SpriteDB.SpriteId.armor_pickup),
-                };
+        for (entityManager.pickups.items) |pickup| {
+            const frame: [4]f32 = switch (pickup.variant) {
+                .health => comptime SpriteDB.getSprite(SpriteDB.SpriteId.health_pickup),
+                .armor => comptime SpriteDB.getSprite(SpriteDB.SpriteId.armor_pickup),
+            };
 
-                Renderer.renderSprite(&spriteSheet, &gridScreenManager, &Renderer.RenderEntity{
-                    .position = Renderer.RenderPosition{ .static = &pickup.position },
-                    .sprite = &frame,
-                });
-            }
+            Renderer.renderSprite(&spriteSheet, &gridScreenManager, &Renderer.RenderEntity{
+                .position = Renderer.RenderPosition{ .static = &pickup.position },
+                .sprite = &frame,
+            });
         }
 
-        for (players) |n_player| {
-            if (n_player) |player| {
-                const playerSprite = SpriteDB.getSprite(player.getSprite());
+        for (entityManager.players.items) |player| {
+            const playerSprite = SpriteDB.getSprite(player.getSprite());
 
-                const tickLerpState = (tickFloat - tickFloor);
-                const interpolatedPosition = getInterpolatedPosition(&player.position, tickLerpState);
+            const tickLerpState = (tickFloat - tickFloor);
+            const interpolatedPosition = getInterpolatedPosition(&player.position, tickLerpState);
 
-                Renderer.renderSprite(&spriteSheet, &gridScreenManager, &Renderer.RenderEntity{
-                    .position = Renderer.RenderPosition{ .dynamic = &interpolatedPosition },
-                    .sprite = &playerSprite,
-                });
-            }
+            Renderer.renderSprite(&spriteSheet, &gridScreenManager, &Renderer.RenderEntity{
+                .position = Renderer.RenderPosition{ .dynamic = &interpolatedPosition },
+                .sprite = &playerSprite,
+            });
         }
 
-        for (projectiles) |projectile| {
+        for (entityManager.projectiles.items) |projectile| {
             if (!projectile.isAlive) {
                 continue;
             }
 
             const frame = switch (projectile.direction) {
-                .Down => SpriteDB.getSprite(SpriteDB.SpriteId.shell_down),
-                .Left => SpriteDB.getSprite(SpriteDB.SpriteId.shell_left),
-                .Up => SpriteDB.getSprite(SpriteDB.SpriteId.shell_up),
-                .Right => SpriteDB.getSprite(SpriteDB.SpriteId.shell_right),
+                .Down => comptime SpriteDB.getSprite(SpriteDB.SpriteId.shell_down),
+                .Left => comptime SpriteDB.getSprite(SpriteDB.SpriteId.shell_left),
+                .Up => comptime SpriteDB.getSprite(SpriteDB.SpriteId.shell_up),
+                .Right => comptime SpriteDB.getSprite(SpriteDB.SpriteId.shell_right),
             };
 
             const tickLerpState = (tickFloat - tickFloor);
@@ -375,9 +367,9 @@ pub fn main() !void {
             for (row) |obstacle| {
                 if (obstacle) |o| {
                     const spriteRect = switch (o.variant) {
-                        .brick => SpriteDB.getSprite(SpriteDB.SpriteId.brick),
-                        .concrete => SpriteDB.getSprite(SpriteDB.SpriteId.concrete),
-                        .net => SpriteDB.getSprite(SpriteDB.SpriteId.net),
+                        .brick => comptime SpriteDB.getSprite(SpriteDB.SpriteId.brick),
+                        .concrete => comptime SpriteDB.getSprite(SpriteDB.SpriteId.concrete),
+                        .net => comptime SpriteDB.getSprite(SpriteDB.SpriteId.net),
                     };
 
                     Renderer.renderSprite(&spriteSheet, &gridScreenManager, &Renderer.RenderEntity{
@@ -388,7 +380,7 @@ pub fn main() !void {
             }
         }
 
-        for (animations) |animation| {
+        for (entityManager.animations.items) |animation| {
             if (animation.isPlaying) {
                 const frame = animation.frames.ptr[animation.current];
 
@@ -413,4 +405,13 @@ fn getInterpolatedPosition(position: *const MovablePosition, lerp: f32) [2]f32 {
     const interpolatedY = std.math.lerp(@as(f32, @floatFromInt(position[1][1])), @as(f32, @floatFromInt(position[0][1])), lerp);
 
     return .{ interpolatedX, interpolatedY };
+}
+
+fn getSliceOfKeysFromHashMap(comptime T: type, allocator: std.mem.Allocator, hasMap: *std.AutoHashMap(T, bool)) ![]T {
+    var arr = std.ArrayList(usize).init(allocator);
+    var iterator = hasMap.keyIterator();
+    while (iterator.next()) |projIndex| {
+        try arr.append(projIndex.*);
+    }
+    return try arr.toOwnedSlice();
 }

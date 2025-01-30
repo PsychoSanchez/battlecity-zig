@@ -5,7 +5,7 @@ pub const Direction = enum {
     Left,
 };
 
-pub fn getPositionFromDirection(position: *[2]u32, direction: Direction, maxBoundary: usize) ?[2]u32 {
+pub fn getPositionFromDirection(position: *const [2]u32, direction: Direction, maxBoundary: usize) ?[2]u32 {
     const x = position[0];
     const y = position[1];
 
@@ -24,15 +24,15 @@ fn getCellSizeFromScreenSize(screenWidth: i32, screenHeight: i32, gridSize: u32)
 pub const GridScreenManager = struct {
     screenWidth: i32 = 800,
     screenHeight: i32 = 450,
-    gridSize: u32 = 10,
+    gridSize: u32 = 100,
     cellScreenSize: f32 = getCellSizeFromScreenSize(800, 450, 10),
     gridScreenOriginX: f32 = 0,
     gridScreenOriginY: f32 = 0,
 
-    pub fn init() GridScreenManager {
+    pub fn init(gridSize: u32) GridScreenManager {
         var manager = GridScreenManager{};
 
-        manager.setGridSize(10);
+        manager.setGridSize(gridSize);
         manager.setScreenSize(800, 450);
 
         return manager;

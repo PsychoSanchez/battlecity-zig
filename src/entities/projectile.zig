@@ -10,4 +10,12 @@ pub const Projectile = struct {
         self.direction = Direction.Down;
         self.position = .{ .{ 0, 0 }, .{ 0, 0 } };
     }
+
+    pub fn default() Projectile {
+        return Projectile{
+            .position = .{ .{ 0, 0 }, .{ 0, 0 } },
+            .direction = Direction.Down,
+            .isAlive = false,
+        };
+    }
 };

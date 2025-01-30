@@ -60,8 +60,6 @@ fn getBoundRect(comptime index: [2]f32) [4]f32 {
     return .{ spriteX, spriteY, TILE_SIZE, TILE_SIZE };
 }
 
-// pub fn getSprite(comptime tile: SpriteId) [4]f32 {
-//     return comptime switch (tile) {
 pub fn getSprite(tile: SpriteId) [4]f32 {
     return switch (tile) {
         .brick => getBoundRect(.{ 0.0, 0.0 }),
