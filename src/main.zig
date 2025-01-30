@@ -63,7 +63,7 @@ fn getEntityFromPosition(players: *const []Player, projectiles: *const []Project
     // return entities;
 }
 
-const GRID_SIZE: u32 = 50;
+const GRID_SIZE: u32 = 10;
 
 pub fn main() !void {
     var gridScreenManager = GridScreenManager.init(GRID_SIZE);
@@ -121,6 +121,22 @@ pub fn main() !void {
         SpriteDB.SpriteId.armored_tank_1_down,
         SpriteDB.SpriteId.armored_tank_1_left,
     } } });
+
+    try entityManager.spawn(.{ .player = Player{ .id = 2, .isAlive = true, .isAiControlled = true, .direction = Direction.Up, .spawnDirection = Direction.Up, .position = .{ .{ GRID_SIZE - 1, GRID_SIZE - 1 }, .{ GRID_SIZE - 1, GRID_SIZE - 1 } }, .movementControls = .{
+        KeyboardControl{ .key = RL.KeyboardKey.w },
+        KeyboardControl{ .key = RL.KeyboardKey.d },
+        KeyboardControl{ .key = RL.KeyboardKey.s },
+        KeyboardControl{ .key = RL.KeyboardKey.a },
+    }, .fireControl = KeyboardControl{ .key = RL.KeyboardKey.space }, .tiles = .{
+        SpriteDB.SpriteId.tank_2_up,
+        SpriteDB.SpriteId.tank_2_right,
+        SpriteDB.SpriteId.tank_2_down,
+        SpriteDB.SpriteId.tank_2_left,
+        SpriteDB.SpriteId.armored_tank_2_up,
+        SpriteDB.SpriteId.armored_tank_2_right,
+        SpriteDB.SpriteId.armored_tank_2_down,
+        SpriteDB.SpriteId.armored_tank_2_left,
+    } } });
     try entityManager.spawn(.{ .animation = Animation.spawn(entityManager.players.items[0].position[0]) });
 
     log("Initializing obstacles");
@@ -131,13 +147,14 @@ pub fn main() !void {
     log("Initializing game ticks");
     var timeSinceStart: f32 = 0.0;
     var lastTick: f32 = 0.0;
-    const gameTickRate = 1.0 / 10.0;
+    const gameTickRate: f32 = 1.0 / 10.0;
+    var rng = std.rand.DefaultPrng.init(10);
 
     while (!RL.windowShouldClose()) {
         const deltaTime = RL.getFrameTime();
         timeSinceStart += deltaTime;
-        const tickFloat = timeSinceStart / gameTickRate;
-        const tickFloor = std.math.floor(tickFloat);
+        const tickFloat: f32 = timeSinceStart / gameTickRate;
+        const tickFloor: f32 = std.math.floor(tickFloat);
 
         for (entityManager.players.items) |*player| {
             player.updateControls();
@@ -145,7 +162,6 @@ pub fn main() !void {
 
         if (tickFloor > lastTick) {
             lastTick = tickFloor;
-            log("Game tick");
 
             const projectilesLength = entityManager.projectiles.items.len;
             for (0..projectilesLength) |index| {
@@ -154,7 +170,6 @@ pub fn main() !void {
 
                 const nextPosition = getPositionFromDirection(projectile.position[0][0..], projectile.direction, gridScreenManager.gridSize) orelse {
                     entityManager.destroy(.{ .entity = .projectile, .index = reverseIndex });
-                    // projectile.destroy();
                     continue;
                 };
 
@@ -165,6 +180,14 @@ pub fn main() !void {
             for (entityManager.players.items) |*player| {
                 if (!player.isAlive) {
                     continue;
+                }
+
+                if (player.isAiControlled) {
+                    // Simple logic for moving AI tanks
+                    const directions = [_]Direction{ .Up, .Down, .Left, .Right };
+                    const randomDirection = directions[rng.next() % directions.len];
+
+                    player.direction = randomDirection;
                 }
 
                 if (player.getPressedDirection()) |movementDirection| {
@@ -187,12 +210,15 @@ pub fn main() !void {
                     std.mem.swap([2]u32, &player.position[1], &player.position[0]);
                     player.position[0] = nextPosition;
                 } else {
-                    std.mem.copyForwards(u32, &player.position[1], player.position[0][0..]);
+                    std.mem.copyForwards(u32, &player.position[1], &player.position[0]);
                 }
 
-                if (player.fireControl.isKeyDown) {
+                // 10% chance to fire
+                const shouldFire = (player.isAiControlled and rng.next() % 100 < 10) or (!player.isAiControlled and player.fireControl.isKeyDown);
+
+                if (shouldFire) {
                     if (getPositionFromDirection(&player.position[0], player.direction, gridScreenManager.gridSize)) |projectileSpawnPosition| {
-                        try entityManager.spawn(.{ .projectile = Projectile{ .direction = player.direction, .isAlive = true, .position = .{ projectileSpawnPosition, projectileSpawnPosition } } });
+                        try entityManager.spawn(.{ .projectile = Projectile{ .direction = player.direction, .isAlive = true, .position = .{ projectileSpawnPosition, player.position[0] } } });
                     }
                 }
             }
@@ -212,6 +238,7 @@ pub fn main() !void {
                     switch (lookupResult) {
                         .player => |player| {
                             log("Projectile hit player");
+                            // Happy crash here
                             player.health -= 1;
 
                             projectilesToDestroyHashMap.put(index, true) catch |err| {
@@ -241,6 +268,7 @@ pub fn main() !void {
                     switch (lookupResult) {
                         .player => |player| {
                             log("Projectile hit player");
+                            // Expecting happy crash there as a game over! YAY!
                             player.health -= 1;
 
                             projectilesToDestroyHashMap.put(index, true) catch |err| {
@@ -285,10 +313,10 @@ pub fn main() !void {
                 }
             }
 
-            const keysSlice = try getSliceOfKeysFromHashMap(usize, allocator, &projectilesToDestroyHashMap);
-            defer allocator.free(keysSlice);
-            std.mem.sort(usize, keysSlice, {}, std.sort.desc(usize));
-            for (keysSlice) |projectileIndex| {
+            const projectileKeysSlice = try getSliceOfKeysFromHashMap(usize, allocator, &projectilesToDestroyHashMap);
+            defer allocator.free(projectileKeysSlice);
+            std.mem.sort(usize, projectileKeysSlice, {}, std.sort.desc(usize));
+            for (projectileKeysSlice) |projectileIndex| {
                 entityManager.destroy(.{ .entity = .projectile, .index = projectileIndex });
             }
 

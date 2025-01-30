@@ -24,7 +24,7 @@ fn getCellSizeFromScreenSize(screenWidth: i32, screenHeight: i32, gridSize: u32)
 pub const GridScreenManager = struct {
     screenWidth: i32 = 800,
     screenHeight: i32 = 450,
-    gridSize: u32 = 100,
+    gridSize: u32 = 10,
     cellScreenSize: f32 = getCellSizeFromScreenSize(800, 450, 10),
     gridScreenOriginX: f32 = 0,
     gridScreenOriginY: f32 = 0,

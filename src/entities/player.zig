@@ -8,6 +8,8 @@ const KeyboardControl = @import("../core/controls.zig").KeyboardControl;
 pub const Player = struct {
     id: u32,
 
+    isAiControlled: bool = false,
+
     // [current, previous]
     position: [2][2]u32 = .{ .{ 0, 0 }, .{ 0, 0 } },
     direction: Direction,
@@ -55,6 +57,10 @@ pub const Player = struct {
     }
 
     pub fn getPressedDirection(self: Player) ?Direction {
+        if (self.isAiControlled) {
+            return self.direction;
+        }
+
         var activeControl: ?KeyboardControl = null;
         var activeIndex: ?usize = null;
 
